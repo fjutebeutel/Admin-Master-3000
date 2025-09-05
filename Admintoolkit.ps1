@@ -1,4 +1,4 @@
-# ==========================================
+﻿# ==========================================
 # Admin-Toolkit für Windows
 # ==========================================
 
@@ -27,33 +27,9 @@ $SysinternalsPath = "C:\Tools\Sysinternals"
 $SysinternalsZip  = Join-Path $env:TEMP "SysinternalsSuite.zip"
 $SysinternalsUrl  = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
 
-function Ensure-Sysinternals {
-    if (-not (Test-Path $SysinternalsPath)) {
-        Write-Host "Sysinternals Suite wird heruntergeladen..." -ForegroundColor Yellow
-        try {
-            Invoke-WebRequest -Uri $SysinternalsUrl -OutFile $SysinternalsZip -UseBasicParsing
-            Expand-Archive -Path $SysinternalsZip -DestinationPath $SysinternalsPath -Force
-            Remove-Item $SysinternalsZip -Force
-            Write-Host "Sysinternals Suite installiert nach: $SysinternalsPath" -ForegroundColor Green
-        } catch {
-            Write-Warning "Download/Installation der Sysinternals Suite fehlgeschlagen: $($_.Exception.Message)"
-        }
-    }
-}
-
-function Start-SysinternalTool {
-    param([Parameter(Mandatory=$true)][string]$ExeName)
-    Ensure-Sysinternals
-    $exe = Join-Path $SysinternalsPath $ExeName
-    if (Test-Path $exe) {
-        Start-Process $exe
-    } else {
-        Write-Warning "Tool nicht gefunden: $exe"
-    }
-}
 
 # --------------------------
-# Wetter (Originalfunktion)
+# Wetter
 # --------------------------
 function Get-Weather {
     try {
@@ -114,7 +90,7 @@ function Show-SystemInfo {
 }
 
 # --------------------------
-# Netzwerk & Dienste pruefen (Originalfunktion)
+# Netzwerk & Dienste pruefen
 # --------------------------
 function Test-NetworkAndServices {
     Write-Host "`n=== Netzwerk und Dienste pruefen ===" -ForegroundColor Cyan
@@ -157,7 +133,7 @@ function Test-NetworkAndServices {
 }
 
 # --------------------------
-# Updates (Windows + Apps) (Originalfunktion)
+# Updates (Windows + Apps)
 # --------------------------
 function Run-Updates {
     Write-Host "`n=== Windows Updates ===" -ForegroundColor Cyan
@@ -193,7 +169,7 @@ function Run-Updates {
 }
 
 # --------------------------
-# Fehleranalyse (Originalfunktion)
+# Fehleranalyse
 # --------------------------
 function Show-SystemErrors {
     Write-Host "`n=== Letzte Systemfehler ===" -ForegroundColor Cyan
@@ -220,7 +196,7 @@ function Show-SystemErrors {
 }
 
 # --------------------------
-# IP-Konfiguration setzen (Originalfunktion)
+# IP-Konfiguration setzen
 # --------------------------
 function Set-NetworkConfig {
     Write-Host "`n=== IP-Konfiguration setzen ===" -ForegroundColor Cyan
@@ -320,7 +296,7 @@ function Set-NetworkConfig {
     }
 }
 # --------------------------
-# VLAN-Konfiguration (KORRIGIERTE Funktion)
+# VLAN-Konfiguration
 # --------------------------
 function Set-VlanTag {
     Write-Host "`n=== VLAN-Konfiguration ===" -ForegroundColor Cyan
@@ -542,117 +518,369 @@ function Pause {
 # --------------------------
 function Install-IIS {
     try {
-        if (-not (Get-WindowsFeature -Name Web-Server).Installed) {
-            Install-WindowsFeature -Name Web-Server -IncludeManagementTools | Out-Null
-            Write-Host "IIS wurde installiert." -ForegroundColor Green
-        } else {
-            Write-Host "IIS ist bereits installiert." -ForegroundColor Green
+        Clear-Host
+        Write-Host "=== IIS Webserver installieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
+        }
+        
+        # Prüfen ob bereits installiert
+        if (Get-WindowsFeature -Name Web-Server | Where-Object {$_.InstallState -eq 'Installed'}) {
+            Write-Host "IIS ist bereits installiert" -ForegroundColor Yellow
+            Pause; return
         }
 
-        $index = "C:\inetpub\wwwroot\index.html"
-        if (-not (Test-Path $index)) {
-            "Willkommen $(Get-Date)" | Out-File $index -Encoding utf8
-            Write-Host "IIS-Startseite erstellt." -ForegroundColor Green
+        Write-Host "Installiere IIS-Webserver..." -ForegroundColor Yellow
+        
+        # IIS mit häufig verwendeten Features installieren
+        $result = Install-WindowsFeature -Name Web-Server, Web-Mgmt-Tools, Web-WebServer, Web-Common-Http, Web-Default-Doc, Web-Dir-Browsing, Web-Http-Errors, Web-Static-Content, Web-Http-Logging, Web-Request-Monitor
+        
+        if ($result.Success) {
+            Write-Host "IIS-Webserver erfolgreich installiert" -ForegroundColor Green
+            Write-Host "Zugriff per: http://localhost" -ForegroundColor Gray
         } else {
-            Write-Host "IIS-Startseite existiert bereits." -ForegroundColor Green
+            Write-Warning "IIS-Webserver konnte nicht installiert werden"
         }
+        
     } catch {
-        Write-Warning "IIS-Setup Problem: $($_.Exception.Message)"
+        Write-Warning "Fehler bei der IIS-Installation: $($_.Exception.Message)"
     }
     Pause
 }
 
 function Install-RSAT {
-    Write-Host "`n=== RSAT Installation ===" -ForegroundColor Cyan
     try {
-        $adCap = Get-WindowsCapability -Online | Where-Object { $_.Name -like "Rsat.ActiveDirectory.DS-LDS.Tools*" } | Select-Object -First 1
-        if ($adCap -and $adCap.State -ne "Installed") {
-            Add-WindowsCapability -Online -Name $adCap.Name -ErrorAction Stop | Out-Null
-            Write-Host "RSAT AD DS/LDAP Tools installiert." -ForegroundColor Green
-        } else {
-            Write-Host "RSAT AD Tools sind bereits installiert." -ForegroundColor Green
+        Clear-Host
+        Write-Host "=== RSAT Tools installieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
         }
         
-        # Prüfen ob ActiveDirectory Modul verfügbar ist
-        if (Get-Module -ListAvailable -Name ActiveDirectory) {
-            Import-Module ActiveDirectory -Force
-            Write-Host "ActiveDirectory Modul importiert." -ForegroundColor Green
-        } else {
-            Write-Warning "ActiveDirectory Modul nicht verfügbar. Bitte stellen Sie sicher, dass RSAT installiert ist."
+        Write-Host "Installiere RSAT-Tools..." -ForegroundColor Yellow
+        
+        # RSAT-Features installieren
+        $features = @(
+            "RSAT.ActiveDirectory.DS-LDS.Tools",
+            "RSAT.DHCP.Tools",
+            "RSAT.DNS.Tools",
+            "RSAT.FileServices.Tools",
+            "RSAT.GroupPolicy.Management.Tools"
+        )
+
+        $successCount = 0
+        foreach ($feature in $features) {
+            Write-Host "Installiere $feature..." -ForegroundColor Gray
+            $result = Add-WindowsCapability -Online -Name $feature -ErrorAction SilentlyContinue
+            if ($result -and $result.State -eq 'Installed') {
+                Write-Host "  ✓ $feature erfolgreich installiert" -ForegroundColor Green
+                $successCount++
+            } else {
+                Write-Warning "  ✗ $feature konnte nicht installiert werden"
+            }
         }
+
+        if ($successCount -eq $features.Count) {
+            Write-Host "`nAlle RSAT-Tools wurden erfolgreich installiert!" -ForegroundColor Green
+        } else {
+            Write-Host "`n$successCount von $($features.Count) RSAT-Tools wurden installiert." -ForegroundColor Yellow
+        }
+        
     } catch {
-        Write-Warning "RSAT-Installation fehlgeschlagen: $($_.Exception.Message)"
+        Write-Warning "Fehler bei der RSAT-Installation: $($_.Exception.Message)"
     }
     Pause
 }
 
 function Install-OpenSSH {
-    Write-Host "`n=== OpenSSH-Server Installation ===" -ForegroundColor Cyan
     try {
-        $cap = Get-WindowsCapability -Online | Where-Object { $_.Name -like "OpenSSH.Server*" } | Select-Object -First 1
-        if ($cap -and $cap.State -ne "Installed") {
-            Add-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop | Out-Null
-            Write-Host "OpenSSH-Server installiert." -ForegroundColor Green
-        } else {
-            Write-Host "OpenSSH-Server ist bereits installiert." -ForegroundColor Green
+        Clear-Host
+        Write-Host "=== OpenSSH-Server installieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
         }
-        # Dienst aktivieren und starten
-        Set-Service -Name sshd -StartupType Automatic -ErrorAction SilentlyContinue
-        Start-Service -Name sshd -ErrorAction SilentlyContinue
-        Write-Host "sshd Dienst aktiviert/gestartet (falls vorhanden)." -ForegroundColor Green
+        
+        # Prüfen ob bereits installiert
+        $sshInstalled = Get-WindowsCapability -Online | Where-Object {$_.Name -like 'OpenSSH.Server*' -and $_.State -eq 'Installed'}
+        if ($sshInstalled) {
+            Write-Host "OpenSSH-Server ist bereits installiert" -ForegroundColor Yellow
+            Pause; return
+        }
+
+        Write-Host "Installiere OpenSSH-Server..." -ForegroundColor Yellow
+        
+        # OpenSSH Server installieren
+        $result = Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+        
+        if ($result.State -eq 'Installed') {
+            # SSH-Dienst starten und konfigurieren
+            Start-Service sshd
+            Set-Service -Name sshd -StartupType 'Automatic'
+            
+            Write-Host "OpenSSH-Server erfolgreich installiert und gestartet" -ForegroundColor Green
+            Write-Host "Zugriff per: ssh $env:COMPUTERNAME" -ForegroundColor Gray
+        } else {
+            Write-Warning "OpenSSH-Server konnte nicht installiert werden"
+        }
+        
     } catch {
-        Write-Warning "OpenSSH-Installation fehlgeschlagen: $($_.Exception.Message)"
+        Write-Warning "Fehler bei der OpenSSH-Installation: $($_.Exception.Message)"
     }
     Pause
 }
+
 
 function Install-SNMP {
-    Write-Host "`n=== SNMP-Client Installation ===" -ForegroundColor Cyan
     try {
-        # Windows 10/11 & Server (Capabilities)
-        $cap = Get-WindowsCapability -Online | Where-Object { $_.Name -like "SNMP.Client*" } | Select-Object -First 1
-        if ($cap) {
-            if ($cap.State -ne "Installed") {
-                Add-WindowsCapability -Online -Name $cap.Name -ErrorAction Stop | Out-Null
-                Write-Host "SNMP-Client installiert." -ForegroundColor Green
-            } else {
-                Write-Host "SNMP-Client ist bereits installiert." -ForegroundColor Green
-            }
-        } else {
-            # Fallback für ältere Server-Editionen
-            if (-not (Get-WindowsFeature -Name SNMP-Services).Installed) {
-                Install-WindowsFeature -Name SNMP-Services | Out-Null
-                Write-Host "SNMP-Services installiert." -ForegroundColor Green
-            } else {
-                Write-Host "SNMP-Services sind bereits installiert." -ForegroundColor Green
-            }
+        Clear-Host
+        Write-Host "=== SNMP-Dienst installieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
         }
+        
+        # Prüfen ob bereits installiert
+        if (Get-WindowsFeature -Name SNMP-Service | Where-Object {$_.InstallState -eq 'Installed'}) {
+            Write-Host "SNMP-Dienst ist bereits installiert" -ForegroundColor Yellow
+            Pause; return
+        }
+
+        Write-Host "Installiere SNMP-Dienst..." -ForegroundColor Yellow
+        
+        # SNMP-Features installieren
+        $result = Install-WindowsFeature -Name SNMP-Service, SNMP-WMI-Provider
+        
+        if ($result.Success) {
+            # Grundkonfiguration des SNMP-Dienstes
+            Set-Service -Name SNMP -StartupType 'Automatic'
+            Start-Service -Name SNMP
+            
+            Write-Host "SNMP-Dienst erfolgreich installiert und gestartet" -ForegroundColor Green
+            Write-Host "Hinweis: SNMP-Community-Strings müssen noch konfiguriert werden" -ForegroundColor Yellow
+        } else {
+            Write-Warning "SNMP-Dienst konnte nicht installiert werden"
+        }
+        
     } catch {
-        Write-Warning "SNMP-Installation fehlgeschlagen: $($_.Exception.Message)"
+        Write-Warning "Fehler bei der SNMP-Installation: $($_.Exception.Message)"
     }
     Pause
 }
 
-function Install-Requirements {
-    Write-Host "`n=== Voraussetzungen installieren ===" -ForegroundColor Cyan
-    try {
-        # TLS 1.2 erzwingen
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
-        # NuGet & PowerShellGet aktualisieren
-        if (-not (Get-PackageProvider -ListAvailable | Where-Object Name -eq "NuGet")) {
-            Install-PackageProvider -Name NuGet -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
+function Show-RequirementsMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Voraussetzungen installieren ===" -ForegroundColor Cyan
+        Write-Host "1: RSAT Tools installieren (Active Directory, etc.)"
+        Write-Host "2: OpenSSH-Server installieren"
+        Write-Host "3: SNMP-Dienst installieren"
+        Write-Host "4: IIS Webserver installieren"
+        Write-Host "5: Sysinternals Tools herunterladen"
+        Write-Host "6: PowerShell konfigurieren (Remoting, ExecutionPolicy)"
+        Write-Host "7: ALLE Voraussetzungen installieren"
+        Write-Host "8: Installationsstatus pruefen"
+        Write-Host "Q: Zurueck zum Hauptmenue"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Install-RSAT }
+            "2" { Install-OpenSSH }
+            "3" { Install-SNMP }
+            "4" { Install-IIS }
+            "5" { Install-Sysinternals }
+            "6" { Configure-PowerShell }
+            "7" { Install-AllRequirements }
+            "8" { Test-Requirements }
+            "Q" { return }
+            default {
+                Write-Warning "Ungueltige Auswahl"
+                Pause
+            }
         }
-        Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -ErrorAction SilentlyContinue
-        Write-Host "Grundlagen aktualisiert." -ForegroundColor Green
-    } catch {
-        Write-Warning "Voraussetzungen konnten nicht vollständig installiert werden: $($_.Exception.Message)"
+       } while ($true)
+}
+function Ensure-Sysinternals {
+    if (-not (Test-Path $SysinternalsPath)) {
+        Write-Host "Sysinternals Suite wird heruntergeladen..." -ForegroundColor Yellow
+        try {
+            Invoke-WebRequest -Uri $SysinternalsUrl -OutFile $SysinternalsZip -UseBasicParsing
+            Expand-Archive -Path $SysinternalsZip -DestinationPath $SysinternalsPath -Force
+            Remove-Item $SysinternalsZip -Force
+            Write-Host "Sysinternals Suite installiert nach: $SysinternalsPath" -ForegroundColor Green
+        } catch {
+            Write-Warning "Download/Installation der Sysinternals Suite fehlgeschlagen: $($_.Exception.Message)"
+        }
     }
+}
+
+function Start-SysinternalTool {
+    param([Parameter(Mandatory=$true)][string]$ExeName)
+    Ensure-Sysinternals
+    $exe = Join-Path $SysinternalsPath $ExeName
+    if (Test-Path $exe) {
+        Start-Process $exe
+    } else {
+        Write-Warning "Tool nicht gefunden: $exe"
+    }
+}
+function Install-Sysinternals {
+    try {
+        Clear-Host
+        Write-Host "=== Sysinternals Tools herunterladen ===" -ForegroundColor Cyan
+        
+        $sysinternalsPath = "C:\Tools\Sysinternals"
+        
+        if (Test-Path $sysinternalsPath) {
+            Write-Host "Sysinternals-Tools sind bereits vorhanden in: $sysinternalsPath" -ForegroundColor Yellow
+            Pause; return
+        }
+
+        Write-Host "Lade Sysinternals-Tools herunter..." -ForegroundColor Yellow
+        
+        # Verzeichnis erstellen
+        New-Item -Path $sysinternalsPath -ItemType Directory -Force | Out-Null
+        
+        # Sysinternals Suite herunterladen
+        $url = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
+        $zipPath = "$env:TEMP\SysinternalsSuite.zip"
+        
+        Write-Host "Download von $url..." -ForegroundColor Gray
+        Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+        
+        # ZIP entpacken
+        Write-Host "Entpacke Archive..." -ForegroundColor Gray
+        Expand-Archive -Path $zipPath -DestinationPath $sysinternalsPath -Force
+        
+        # Temporäre Datei bereinigen
+        Remove-Item -Path $zipPath -Force
+        
+        Write-Host "Sysinternals-Tools erfolgreich nach $sysinternalsPath heruntergeladen" -ForegroundColor Green
+        Write-Host "Tools verfügbar in: $sysinternalsPath" -ForegroundColor Gray
+        
+    } catch {
+        Write-Warning "Fehler beim Herunterladen der Sysinternals-Tools: $($_.Exception.Message)"
+    }
+    Pause
+}
+function Configure-PowerShell {
+    try {
+        Clear-Host
+        Write-Host "=== PowerShell konfigurieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
+        }
+        
+        Write-Host "Konfiguriere PowerShell..." -ForegroundColor Yellow
+        
+        # Ausführungsrichtlinie setzen
+        Write-Host "Setze Ausführungsrichtlinie auf 'RemoteSigned'..." -ForegroundColor Gray
+        Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope LocalMachine -Force
+        
+        # PowerShell-Remoting aktivieren
+        Write-Host "Aktiviere PowerShell-Remoting..." -ForegroundColor Gray
+        Enable-PSRemoting -Force
+        
+        Write-Host "PowerShell erfolgreich konfiguriert!" -ForegroundColor Green
+        Write-Host "• Ausführungsrichtlinie: RemoteSigned" -ForegroundColor Gray
+        Write-Host "• PowerShell-Remoting: Aktiviert" -ForegroundColor Gray
+        
+    } catch {
+        Write-Warning "Fehler bei der PowerShell-Konfiguration: $($_.Exception.Message)"
+    }
+    Pause
+}
+function Install-AllRequirements {
+    try {
+        Clear-Host
+        Write-Host "=== ALLE Voraussetzungen installieren ===" -ForegroundColor Cyan
+        
+        # Administratorrechte prüfen
+        if (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+            Write-Warning "Diese Funktion erfordert Administratorrechte!"
+            Pause; return
+        }
+        
+        Write-Host "Installiere alle Voraussetzungen..." -ForegroundColor Yellow
+        Write-Host "Dies kann einige Minuten dauern.`n" -ForegroundColor Yellow
+        
+        # Alle Komponenten installieren
+        Install-RSAT -NoMenu
+        Install-OpenSSH -NoMenu
+        Install-SNMP -NoMenu
+        Install-IIS -NoMenu
+        Install-Sysinternals -NoMenu
+        Configure-PowerShell -NoMenu
+        
+        Write-Host "`n=== Alle Voraussetzungen installiert! ===" -ForegroundColor Green
+        Write-Host "Das System ist nun vollständig für die Administration vorbereitet." -ForegroundColor Green
+        
+    } catch {
+        Write-Warning "Fehler bei der Installation: $($_.Exception.Message)"
+    }
+    Pause
+}
+function Test-Requirements {
+    Clear-Host
+    Write-Host "=== Installationsstatus pruefen ===" -ForegroundColor Cyan
+    
+    Write-Host "`nÜberprüfe installierte Komponenten...`n" -ForegroundColor Yellow
+    
+    # RSAT prüfen
+    $rsatInstalled = Get-WindowsCapability -Name RSAT* -Online | Where-Object {$_.State -eq 'Installed'}
+    Write-Host "RSAT Tools:" -ForegroundColor Gray -NoNewline
+    if ($rsatInstalled) { Write-Host " ✓ Installiert ($($rsatInstalled.Count) Features)" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht installiert" -ForegroundColor Red }
+    
+    # OpenSSH prüfen
+    $sshInstalled = Get-WindowsCapability -Online | Where-Object {$_.Name -like 'OpenSSH.Server*' -and $_.State -eq 'Installed'}
+    Write-Host "OpenSSH Server:" -ForegroundColor Gray -NoNewline
+    if ($sshInstalled) { Write-Host " ✓ Installiert" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht installiert" -ForegroundColor Red }
+    
+    # SNMP prüfen
+    $snmpInstalled = Get-WindowsFeature -Name SNMP-Service | Where-Object {$_.InstallState -eq 'Installed'}
+    Write-Host "SNMP Dienst:" -ForegroundColor Gray -NoNewline
+    if ($snmpInstalled) { Write-Host " ✓ Installiert" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht installiert" -ForegroundColor Red }
+    
+    # IIS prüfen
+    $iisInstalled = Get-WindowsFeature -Name Web-Server | Where-Object {$_.InstallState -eq 'Installed'}
+    Write-Host "IIS Webserver:" -ForegroundColor Gray -NoNewline
+    if ($iisInstalled) { Write-Host " ✓ Installiert" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht installiert" -ForegroundColor Red }
+    
+    # Sysinternals prüfen
+    $sysinternalsPath = "C:\Tools\Sysinternals"
+    Write-Host "Sysinternals Tools:" -ForegroundColor Gray -NoNewline
+    if (Test-Path $sysinternalsPath) { Write-Host " ✓ Vorhanden" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht vorhanden" -ForegroundColor Red }
+    
+    # PowerShell konfiguration prüfen
+    $executionPolicy = Get-ExecutionPolicy -Scope LocalMachine
+    Write-Host "PowerShell ExecutionPolicy:" -ForegroundColor Gray -NoNewline
+    if ($executionPolicy -eq "RemoteSigned") { Write-Host " ✓ Konfiguriert" -ForegroundColor Green }
+    else { Write-Host " ✗ Nicht konfiguriert ($executionPolicy)" -ForegroundColor Red }
+    
+    Write-Host "`nÜberprüfung abgeschlossen." -ForegroundColor Yellow
     Pause
 }
 
 # --------------------------
-# Active Directory – Menü-Funktionen (Basis)
+# Active Directory – Menü-Funktionen
 # --------------------------
 function New-ADUser {
     try {
@@ -866,9 +1094,9 @@ function Show-MainMenu {
             "6" { Show-SystemErrors; Pause }
             "7" { Show-NetworkMenu }
             "8" { Install-PrinterByRoom }
-            "9" { Install-Requirements }
+            "9" { Show-RequirementsMenu }
             "Q" { 
-                Write-Host "Admin-Toolkit wird beendet." -ForegroundColor Cyan
+                Write-Host "Admin-Toolkit wird beendet, bis Baldrian." -ForegroundColor Cyan
                 exit 
             }
             default {
@@ -882,3 +1110,4 @@ function Show-MainMenu {
 # ----- Skriptstart -----
 # Aufruf des Hauptmenüs, damit das Skript beim Start läuft
 Show-MainMenu
+

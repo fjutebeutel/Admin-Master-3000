@@ -1,4 +1,4 @@
-﻿# ==========================================
+# ==========================================
 # Admin-Toolkit für Windows
 # ==========================================
 
@@ -1110,4 +1110,5 @@ function Show-MainMenu {
 # ----- Skriptstart -----
 # Aufruf des Hauptmenüs, damit das Skript beim Start läuft
 Show-MainMenu
+
 

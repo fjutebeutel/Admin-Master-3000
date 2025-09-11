@@ -2,7 +2,7 @@
 Das ultimative, menügeführte PowerShell-Toolkit für Windows-Systemadministratoren.
 
 Entstanden aus der täglichen Praxis im Rechenzentrum vereint der Admin Master 3000 alle häufigen Aufgaben in einer einzigen, konsolenbasierten Oberfläche.
-Er automatisiert repetitive Jobs, beschleunigt die Fehlersuche und macht die Systemadministration effizienter zuminest so die Idee.
+Er automatisiert repetitive Jobs, beschleunigt die Fehlersuche und macht die Systemadministration effizienter zumindest so die Idee.
 
 
 

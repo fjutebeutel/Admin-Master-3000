@@ -147,9 +147,22 @@ function Run-Updates {
         Write-Host "Suche nach Windows Updates..."
         $updates = Get-WUList -ErrorAction Stop
         if ($updates) {
-            Write-Host "$($updates.Count) Updates verfuegbar. Installation wird gestartet..."
-            Install-WindowsUpdate -AcceptAll -AutoReboot:$false -ErrorAction Stop
-            Write-Host "Updates installiert. Neustart moeglicherweise erforderlich." -ForegroundColor Green
+            Write-Host "$($updates.Count) Updates verfuegbar." -ForegroundColor Yellow
+            
+            # Zeige verfügbare Updates an
+            $updates | ForEach-Object {
+                Write-Host " - $($_.Title) (Größe: $([math]::Round($_.Size/1MB, 2)) MB)" -ForegroundColor White
+            }
+            
+            # Abfrage für Windows Updates
+            $antwort = Read-Host "`nMoechten Sie alle Windows Updates installieren? (J/N)"
+            if ($antwort -eq "J" -or $antwort -eq "j") {
+                Write-Host "Installation wird gestartet..."
+                Install-WindowsUpdate -AcceptAll -AutoReboot:$false -ErrorAction Stop
+                Write-Host "Updates installiert. Neustart moeglicherweise erforderlich." -ForegroundColor Green
+            } else {
+                Write-Host "Windows Update Installation abgebrochen." -ForegroundColor Yellow
+            }
         } else {
             Write-Host "Keine Windows Updates verfuegbar." -ForegroundColor Green
         }
@@ -160,14 +173,75 @@ function Run-Updates {
     Write-Host "`n=== Anwendungsupdates (winget) ===" -ForegroundColor Cyan
     try { 
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --all --accept-package-agreements --accept-source-agreements
+            Write-Host "Suche nach winget Updates..."
+            
+            # Prüfen, ob winget JSON-Output unterstützt
+            $wingetSupportsJson = $false
+            $wingetVersionOutput = winget --version
+            if ($wingetVersionOutput -match "\d+\.\d+\.\d+") {
+                $version = [version]$Matches[0]
+                # JSON-Output wurde in Version 1.3 eingeführt
+                if ($version -ge [version]"1.3.0") {
+                    $wingetSupportsJson = $true
+                }
+            }
+            
+            if ($wingetSupportsJson) {
+                # Moderne winget-Version mit JSON-Support
+                $wingetUpdates = winget upgrade --all --accept-source-agreements --output json | ConvertFrom-Json
+                
+                if ($wingetUpdates.Upgrades -and $wingetUpdates.Upgrades.Count -gt 0) {
+                    Write-Host "$($wingetUpdates.Upgrades.Count) winget Updates verfuegbar:" -ForegroundColor Yellow
+                    
+                    $wingetUpdates.Upgrades | ForEach-Object {
+                        Write-Host " - $($_.Name) [$($_.Id)] (Aktuell: $($_.InstalledVersion) -> Neu: $($_.AvailableVersion))" -ForegroundColor White
+                    }
+                    
+                    # Abfrage für winget Updates
+                    $antwort = Read-Host "`nMoechten Sie alle winget Updates installieren? (J/N)"
+                    if ($antwort -eq "J" -or $antwort -eq "j") {
+                        winget upgrade --all --accept-package-agreements --accept-source-agreements
+                        Write-Host "winget Updates installiert." -ForegroundColor Green
+                    } else {
+                        Write-Host "winget Update Installation abgebrochen." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "Keine winget Updates verfuegbar." -ForegroundColor Green
+                }
+            } else {
+                # Ältere winget-Version ohne JSON-Support
+                Write-Host "winget Version unterstützt keine JSON-Ausgabe. Verwende textbasierte Prüfung..." -ForegroundColor Yellow
+                
+                # Führe winget upgrade aus und prüfe das Ergebnis
+                $wingetOutput = winget upgrade --all --accept-source-agreements
+                
+                if ($wingetOutput -match "Verfügbare Upgrades|Available Upgrades") {
+                    Write-Host "winget Updates verfuegbar." -ForegroundColor Yellow
+                    Write-Host "Ausgabe: $wingetOutput"
+                    
+                    # Abfrage für winget Updates
+                    $antwort = Read-Host "`nMoechten Sie alle winget Updates installieren? (J/N)"
+                    if ($antwort -eq "J" -or $antwort -eq "j") {
+                        winget upgrade --all --accept-package-agreements --accept-source-agreements
+                        Write-Host "winget Updates installiert." -ForegroundColor Green
+                    } else {
+                        Write-Host "winget Update Installation abgebrochen." -ForegroundColor Yellow
+                    }
+                } else {
+                    Write-Host "Keine winget Updates verfuegbar." -ForegroundColor Green
+                }
+            }
         } else {
             Write-Warning "winget nicht gefunden. Installieren Sie winget von https://github.com/microsoft/winget-cli"
         }
     }
-    catch { Write-Warning "winget-Update fehlgeschlagen: $($_.Exception.Message)" }
+    catch { 
+        Write-Warning "winget-Update fehlgeschlagen: $($_.Exception.Message)"
+        Write-Host "Versuche Fallback-Methode..." -ForegroundColor Yellow
+        # Fallback: Einfache Ausführung ohne JSON-Parsing
+        winget upgrade --all --accept-package-agreements --accept-source-agreements
+    }
 }
-
 # --------------------------
 # Fehleranalyse
 # --------------------------
@@ -445,107 +519,313 @@ function Show-NetworkAdapters {
     }
 }
 
-# --------------------------
-# Drucker im Netzwerk suchen und installieren
-# --------------------------
-function Install-PrinterByRoom {
-    Write-Host "`n=== Drucker Installation ===" -ForegroundColor Cyan
-    
-    $roomNumber = Read-Host "Bitte geben Sie die Raumnummer ein (z.B. 190)"
-    if (-not $roomNumber -or -not ($roomNumber -match '^\d+$')) {
-        Write-Warning "Ungueltige Raumnummer"
-        Pause
-        return
+# -------------------------------------------------------------
+# Helper: Alle Host‑IP‑Adressen aus allen lokalen Subnetzen ermitteln
+# -------------------------------------------------------------
+function Get-AllSubnetHosts {
+    $hosts = @()
+    # Nur IPv4-Adressen mit DHCP oder manueller Konfiguration berücksichtigen
+    $ipConfigs = Get-NetIPAddress -AddressFamily IPv4 |
+                 Where-Object { $_.PrefixOrigin -in 'Dhcp','Manual' }
+
+    foreach ($cfg in $ipConfigs) {
+        # Erstes /24‑Subnetz (erste drei Oktette)
+        $octets = ($cfg.IPAddress -split '\.')[0..2] -join '.'
+        for ($i=1; $i -le 254; $i++) {
+            $hosts += "$octets.$i"
+        }
     }
-    
-    $networkRange = "192.168.$roomNumber.*"
-    Write-Host "`nSuche nach Druckern im Bereich: $networkRange" -ForegroundColor Yellow
-    
-    # Liste möglicher Drucker-IPs im Raum
-    $possiblePrinters = @()
-    for ($i = 1; $i -le 254; $i++) {
-        $possiblePrinters += "192.168.$roomNumber.$i"
+
+    return $hosts | Sort-Object -Unique
+}
+
+# -------------------------------------------------------------
+# Helper: Prüfen, ob ein TCP‑Port offen ist (Timeout in ms)
+# -------------------------------------------------------------
+function Test-TCPPort {
+    param(
+        [Parameter(Mandatory)][string]$IP,
+        [Parameter(Mandatory)][int]$Port,
+        [int]$Timeout = 200   # 200 ms
+    )
+    try {
+        $client      = New-Object System.Net.Sockets.TcpClient
+        $asyncResult = $client.BeginConnect($IP, $Port, $null, $null)
+        if ($asyncResult.AsyncWaitHandle.WaitOne($Timeout)) {
+            $client.EndConnect($asyncResult) | Out-Null
+            return $true
+        }
+    } catch {}
+    finally { if ($client) { $client.Close() } }
+
+    return $false
+}
+
+# -------------------------------------------------------------
+# Helper: SNMP‑Name eines Druckers ermitteln (falls snmpget vorhanden)
+# -------------------------------------------------------------
+function Get-SNMPPrinterName {
+    param([string]$IPAddress)
+
+    # Prüfen, ob snmpget im System verfügbar ist
+    $snmpCmd = Get-Command snmpget -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+    if ($snmpCmd) {
+        try {
+            $output = & $snmpCmd -v 2c -c public "$IPAddress" .1.3.6.1.2.1.43.5.1.1.17.1
+            # Beispielausgabe: "SNMPv2-MIB::sysName.0 = STRING: MyPrinter"
+            if ($output -match 'STRING:\s*(.+)') {
+                return $Matches[1].Trim()
+            }
+        } catch {}
     }
-    
-    Write-Host "Scanne nach Druckern... Dies kann einen Moment dauern." -ForegroundColor Yellow
-    
-    $foundPrinters = @()
-    $counter = 0
-    
-    foreach ($printerIP in $possiblePrinters) {
-        $counter++
-        Write-Progress -Activity "Netzwerkscan" -Status "Prüfe $printerIP" -PercentComplete (($counter / 254) * 100)
-        
-        # Prüfen ob Port 9100 (Druckerport) offen ist
-        $tcpClient = New-Object System.Net.Sockets.TcpClient
-        $asyncResult = $tcpClient.BeginConnect($printerIP, 9100, $null, $null)
-        $wait = $asyncResult.AsyncWaitHandle.WaitOne(100, $false)
-        
-        if ($wait -and $tcpClient.Connected) {
-            $tcpClient.EndConnect($asyncResult)
-            $tcpClient.Close()
-            
-            # Versuchen, Druckernamen zu ermitteln
-            $printerName = "Drucker_Raum_${roomNumber}_$($printerIP.Split('.')[-1])"
-            $foundPrinters += [PSCustomObject]@{
-                IP = $printerIP
-                Name = $printerName
-                Port = 9100
+
+    # Fallback: keine SNMP‑Antwort
+    return $null
+}
+
+# -------------------------------------------------------------
+# Helper: Drucker installieren (Port, Treiber, etc.)
+# -------------------------------------------------------------
+function Process-PrinterInstallation {
+    param(
+        [PSCustomObject]$Printer   # Objekt mit IP, Name und Port (default 9100)
+    )
+
+    Write-Host "`n=== Drucker konfigurieren ===" -ForegroundColor Cyan
+
+    # ---------- Port ----------
+    $defaultPortName = $Printer.IP
+    $portName = Read-Host "Portname (Default: $defaultPortName)"
+    if ([string]::IsNullOrWhiteSpace($portName)) { $portName = $defaultPortName }
+
+    # ---------- Druckername ----------
+    $printerName = Read-Host "Druckername (Default: $($Printer.Name))"
+    if ([string]::IsNullOrWhiteSpace($printerName)) { $printerName = $Printer.Name }
+
+    Log-Info "Konfiguriere Drucker: IP=$($Printer.IP), Port=$portName, Name=$printerName"
+
+    # ---------- Treiber ----------
+    Write-Host "`nTreiber-Auswahl:" -ForegroundColor Cyan
+
+    $driverDownloadedAns = Read-Host "Haben Sie den Druckertreiber heruntergeladen? (J/N)"
+    if ($driverDownloadedAns -match '^[jJ]') {
+        do {
+            $driverPath = Read-Host "Pfad zum Treiberordner angeben"
+            if (-not (Test-Path $driverPath)) { Write-Warning "Pfad nicht gefunden. Bitte erneut eingeben." }
+        } until (Test-Path $driverPath)
+
+        # INF‑Dateien im Ordner suchen
+        $infFiles = Get-ChildItem -Path $driverPath -Filter *.inf -Recurse -ErrorAction SilentlyContinue
+
+        if ($infFiles.Count -eq 0) {
+            Write-Warning "Keine INF-Datei gefunden. Verwende Generic / Text Only."
+            $driverName = "Generic / Text Only"
+        } else {
+            # Falls mehrere, auswählen
+            if ($infFiles.Count -eq 1) {
+                $selectedInf = $infFiles[0].FullName
+            } else {
+                Write-Host "`nFolgende INF-Dateien gefunden:" -ForegroundColor Green
+                for ($i=0;$i -lt $infFiles.Count;$i++) { Write-Host "$($i+1): $($infFiles[$i].FullName)" }
+                do {
+                    $choice = Read-Host "Welche INF soll verwendet werden? (Nummer)"
+                    if ($choice -match '^\d+$' -and $choice -ge 1 -and $choice -le $infFiles.Count) { break }
+                    Write-Warning "Ungültige Auswahl."
+                } until ($true)
+                $selectedInf = $infFiles[$choice-1].FullName
+            }
+
+            # Treiber installieren
+            try {
+                Add-PrinterDriver -Name ("Custom_$($Printer.IP)") -InfPath $selectedInf -ErrorAction Stop
+                Log-Info "Treiber installiert: $selectedInf"
+                $driverName = "Custom_$($Printer.IP)"
+            } catch {
+                Write-Warning "Fehler bei Treiberinstallation: $_.Exception.Message"
+                $driverName = "Generic / Text Only"
             }
         }
-        $tcpClient.Close()
+    } else {
+        # Bestehende Treiber aus der Liste wählen
+        $existingDrivers = Get-PrinterDriver | Select-Object -ExpandProperty Name
+        if ($existingDrivers.Count -gt 0) {
+            Write-Host "`nVorhandene Treiber:" -ForegroundColor Green
+            for ($i=0;$i -lt $existingDrivers.Count;$i++) { Write-Host "$($i+1): $($existingDrivers[$i])" }
+            do {
+                $driverChoice = Read-Host "Wählen Sie einen Treiber aus (Nummer) oder 'g' für Generic"
+                if ($driverChoice -eq 'g') { $driverName = "Generic / Text Only"; break }
+                if ($driverChoice -match '^\d+$' -and $driverChoice -ge 1 -and $driverChoice -le $existingDrivers.Count) { break }
+                Write-Warning "Ungültige Auswahl."
+            } until ($true)
+            if ($driverName -ne "Generic / Text Only") {
+                $driverName = $existingDrivers[$driverChoice-1]
+            }
+        } else {
+            Write-Warning "Keine vorhandenen Treiber gefunden. Verwende Generic / Text Only."
+            $driverName = "Generic / Text Only"
+        }
     }
-    
-    Write-Progress -Activity "Netzwerkscan" -Completed
-    
-    if ($foundPrinters.Count -eq 0) {
-        Write-Warning "Keine Drucker im Netzwerkbereich $networkRange gefunden."
-        Pause
-        return
+
+    # ----------Port-erstellen----------
+        try {
+        if (-not (Get-PrinterPort -Name $portName -ErrorAction SilentlyContinue)) {
+            Add-PrinterPort -Name $portName `
+                            -PrinterHostAddress $Printer.IP `
+                            -ErrorAction Stop
+            Log-Info "Port erstellt: $portName"
+        } else {
+            Write-Host "Port '$portName' existiert bereits." -ForegroundColor Yellow
+            Log-Warn "Port '$portName' existierte bereits."
+        }
+
+        # ---------- Drucker installieren ----------
+        Add-Printer -Name $printerName `
+                    -DriverName $driverName `
+                    -PortName $portName `
+                    -ErrorAction Stop
+
+        Write-Host "`nDrucker erfolgreich installiert: $printerName" -ForegroundColor Green
+        Log-Info "Drucker installiert: $printerName"
+    } catch {
+        Write-Warning "Fehler bei Druckerinstallation: $_.Exception.Message"
+        Log-Warn "Fehler bei Installation von $printerName : ${($_.Exception.Message)}"
     }
-    
-    # Gefundene Drucker anzeigen
-    Write-Host "`nGefundene Drucker:" -ForegroundColor Green
-    for ($i = 0; $i -lt $foundPrinters.Count; $i++) {
-        Write-Host "$($i+1): $($foundPrinters[$i].IP) - $($foundPrinters[$i].Name)"
+}
+# -------------------------------------------------------------
+# Drucker im Netzwerk suchen und installieren (neue, raumunabhängige Version)
+# -------------------------------------------------------------
+function Install-PrinterByRoom {
+    Write-Host "`n=== Drucker Installation ===" -ForegroundColor Cyan
+
+    # 1. Prüfen, ob Print‑Services installiert ist
+    $printService = Get-WindowsFeature -Name Print-Services -ErrorAction SilentlyContinue
+    if ($null -eq $printService) {
+        Write-Warning "Print‑Services Feature ist nicht verfügbar (client?)."
+        $isServerInstalled = $false
+    } else {
+        $isServerInstalled = $printService.Installed
     }
-    
-    # Drucker auswählen
-    $printerChoice = Read-Host "`nWelchen Drucker moechten Sie installieren? (Nummer)"
-    if (-not ($printerChoice -match '^\d+$') -or $printerChoice -lt 1 -or $printerChoice -gt $foundPrinters.Count) {
-        Write-Warning "Ungueltige Auswahl"
-        Pause
-        return
+
+    if ($isServerInstalled) {
+        Log-Info "Print‑Services bereits installiert."
+        Write-Host "Print‑Services ist bereits installiert." -ForegroundColor Green
+
+        # Frage, ob ein Drucker hinzugefügt werden soll
+        $addPrinterAns = Read-Host "Möchten Sie einen Drucker hinzufügen? (J/N)"
+        if ($addPrinterAns -notmatch '^[jJ]') {
+            Write-Host "Keine weitere Aktion." -ForegroundColor Yellow
+            return
+        }
+    } else {
+        # Print‑Services nicht installiert – Installation anfragen
+        $installServerAns = Read-Host "Print‑Services ist nicht installiert. Möchten Sie es jetzt installieren? (J/N)"
+        if ($installServerAns -match '^[jJ]') {
+            Log-Info "Installiere Print‑Services."
+            try {
+                Install-WindowsFeature Print-Services | Out-Null
+                if ((Get-WindowsFeature -Name Print-Services).Installed) {
+                    Write-Host "Print‑Services erfolgreich installiert." -ForegroundColor Green
+                    Log-Info "Print‑Services installiert."
+                } else {
+                    Write-Warning "Print‑Services konnte nicht installiert werden."
+                    return
+                }
+            } catch {
+                Write-Warning "Fehler bei der Installation von Print‑Services: $_.Exception.Message"
+                return
+            }
+        } else {
+            Write-Host "Ohne Print‑Server kann kein Drucker hinzugefügt werden." -ForegroundColor Yellow
+            return
+        }
     }
-    
-    $selectedPrinter = $foundPrinters[$printerChoice - 1]
-    
-    Write-Host "`nDrucker wird konfiguriert:"
-    Write-Host "IP-Adresse: $($selectedPrinter.IP)"
-    Write-Host "Name: $($selectedPrinter.Name)"
-    
-    $confirm = Read-Host "Fortfahren? (J/N)"
-    if ($confirm -notmatch "^[jJ]") {
-        Write-Host "Abgebrochen" -ForegroundColor Yellow
-        Pause
-        return
+
+    # 2. Prüfen, ob der Drucker bereits eine feste IP hat
+    $hasFixedIP = Read-Host "`nHat der Drucker bereits eine feste IP-Adresse? (J/N)"
+    if ($hasFixedIP -match '^[jJ]') {
+        do {
+            $printerIP = Read-Host "Geben Sie die IP-Adresse des Druckers ein"
+            $validIP  = $printerIP -match '^(\d{1,3}\.){3}\d{1,3}$'
+            if (-not $validIP) { Write-Warning "Ungültige IP. Bitte erneut eingeben." }
+        } until ($validIP)
+
+        # Ein einzelner Drucker
+        $possiblePrinters = @([PSCustomObject]@{
+            IP   = $printerIP
+            Name = "Drucker_$($printerIP.Split('.')[-1])"
+            Port = 9100
+        })
+    } else {
+        # -------- Netzwerkscan ----------
+        Log-Info "Beginne Netzwerkscan nach Druckern."
+        Write-Host "`nDurchsuche lokale Subnetze nach Druckern (Port 9100)..." -ForegroundColor Yellow
+
+        $hosts = Get-AllSubnetHosts
+        if ($hosts.Count -eq 0) {
+            Write-Warning "Keine IP-Adressen aus der Netzwerkkonfiguration gefunden."
+            return
+        }
+
+        $foundPrinters = @()
+        $counter = 0
+        foreach ($ip in $hosts) {
+            $counter++
+            Write-Progress -Activity "Netzwerkscan" `
+                           -Status "Prüfe $ip" `
+                           -PercentComplete (($counter / $hosts.Count) * 100)
+            if (Test-TCPPort -IP $ip -Port 9100) {
+                # SNMP‑Name
+                $name = Get-SNMPPrinterName -IPAddress $ip
+                if (-not $name) { $name = "Drucker_$($ip.Split('.')[-1])" }
+                $foundPrinters += [PSCustomObject]@{
+                    IP   = $ip
+                    Name = $name
+                    Port = 9100
+                }
+            }
+        }
+
+        Write-Progress -Activity "Netzwerkscan" -Completed
+
+        if ($foundPrinters.Count -eq 0) {
+            Write-Warning "Keine Drucker im Netzwerk gefunden."
+            return
+        }
+
+        # -------- Auswahl ----------
+        Write-Host "`nGefundene Drucker:" -ForegroundColor Green
+        for ($i=0;$i -lt $foundPrinters.Count;$i++) {
+            Write-Host "$($i+1): $($foundPrinters[$i].IP) – $($foundPrinters[$i].Name)"
+        }
+
+        do {
+            $choice = Read-Host "`nWelche Drucker möchten Sie installieren? (z. B. 1,3 oder 'alle')"
+            if ($choice -match '^alle$' -or $choice -match '^[0-9,\s]+$') { break }
+            Write-Warning "Ungültige Eingabe."
+        } until ($true)
+
+        if ($choice -eq 'alle') {
+            $selectedPrinters = $foundPrinters
+        } else {
+            $indices = ($choice -split '[,\s]+' | Where-Object { $_ -match '^\d+$' })
+            $selectedPrinters = @()
+            foreach ($idx in $indices) {
+                $n = [int]$idx
+                if ($n -ge 1 -and $n -le $foundPrinters.Count) { $selectedPrinters += $foundPrinters[$n-1] }
+            }
+        }
+
+        # ---------- Installation ----------
+        foreach ($printer in $selectedPrinters) {
+            Process-PrinterInstallation -Printer $printer
+        }
+
+        return   # alles erledigt
     }
-    
-    try {
-        # Druckerport erstellen
-        Add-PrinterPort -Name $selectedPrinter.IP -PrinterHostAddress $selectedPrinter.IP -ErrorAction Stop
-        
-        # Drucker installieren (mit generischem Treiber)
-        Add-Printer -Name $selectedPrinter.Name -PortName $selectedPrinter.IP -DriverName "Generic / Text Only" -ErrorAction Stop
-        
-        Write-Host "Drucker erfolgreich installiert: $($selectedPrinter.Name)" -ForegroundColor Green
-        Write-Host "IP: $($selectedPrinter.IP)" -ForegroundColor Green
-    }
-    catch {
-        Write-Warning "Fehler bei der Druckerinstallation: $($_.Exception.Message)"
-    }
-    
-    Pause
+
+    # 3. Ein einziger Drucker (mit fester IP)
+    $printer = $possiblePrinters[0]
+    Process-PrinterInstallation -Printer $printer
 }
 
 # --------------------------
@@ -1251,7 +1531,7 @@ function Show-MainMenu {
         Write-Host "5: Active Directory Verwaltung"
         Write-Host "6: Systemfehler anzeigen"
         Write-Host "7: Netzwerk Konfiguration"
-        Write-Host "8: Drucker installieren (nach Raum)"
+        Write-Host "8: Drucker installieren"
         Write-Host "9: Voraussetzungen installieren"
         Write-Host "10: Allgemeine Fehlerbehebung (Tools & Checks)"
         Write-Host "Q: Beenden"

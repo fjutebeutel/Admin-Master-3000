@@ -1,4 +1,4 @@
-# ==========================================
+﻿# ==========================================
 # Admin-Toolkit für Windows
 # ==========================================
 
@@ -172,26 +172,69 @@ function Run-Updates {
 # Fehleranalyse
 # --------------------------
 function Show-SystemErrors {
+    [CmdletBinding()]
+    param(
+        [switch]$IncludeWarnings,   # auch Warnungen anzeigen
+        [switch]$ShowDetails        # komplette Nachrichten statt Kurzfassung
+    )
+
     Write-Host "`n=== Letzte Systemfehler ===" -ForegroundColor Cyan
+
     try {
+        # HashTable mit bekannten EventIDs und Lösungsvorschlägen
+        $EventFixes = @{
+            7     = "Disk-Fehler: Prüfen Sie die Festplatte mit 'chkdsk /f' oder SMART-Tools."
+            41    = "Kernel-Power: Unerwarteter Neustart. Prüfen Sie Netzteil und Treiber."
+            1014  = "DNS-Fehler: Überprüfen Sie die Netzwerkverbindung oder DNS-Server."
+            55    = "NTFS-Fehler: Dateisystem beschädigt – chkdsk /f ausführen."
+            2019  = "Speicher-Leck: Überprüfen Sie Treiber und Programme mit hoher RAM-Auslastung."
+        }
+
+        # Fehler-Events laden
         $errorEvents = Get-EventLog -LogName System -EntryType Error -Newest 10 -ErrorAction SilentlyContinue
         if ($errorEvents) {
-            $errorEvents | Select-Object TimeGenerated, Source, EventID, Message | Format-Table -AutoSize -Wrap
+            foreach ($event in $errorEvents) {
+                $msg = $event.Message -replace "`r|`n"," " -replace '\s{2,}',' '
+                if (-not $ShowDetails) {
+                    $msg = if ($msg.Length -gt 100) { $msg.Substring(0,100) + "..." } else { $msg }
+                }
+
+                Write-Host "`n[!] Fehler $($event.EventID) | $($event.Source) | $($event.TimeGenerated)" -ForegroundColor Red
+                Write-Host "    Nachricht: $msg"
+
+                # Lösungsvorschlag ausgeben, falls vorhanden
+                if ($EventFixes.ContainsKey($event.EventID)) {
+                    Write-Host "    Lösung: $($EventFixes[$event.EventID])" -ForegroundColor Yellow
+                } else {
+                    Write-Host "    Mehr Infos: https://www.google.com/search?q=Windows+EventID+$($event.EventID)" -ForegroundColor DarkGray
+                }
+            }
         } else {
-            Write-Host "Keine Fehlerereignisse in den letzten Eintraegen gefunden." -ForegroundColor Green
+            Write-Host "Keine Fehlerereignisse in den letzten Einträgen gefunden." -ForegroundColor Green
         }
-        
-        Write-Host "`n=== Letzte Warnungen ==="
-        $warningEvents = Get-EventLog -LogName System -EntryType Warning -Newest 10 -ErrorAction SilentlyContinue
-        if ($warningEvents) {
-            $warningEvents | Select-Object TimeGenerated, Source, EventID, Message | Format-Table -AutoSize -Wrap
-        } else {
-            Write-Host "Keine Warnereignisse in den letzten Eintraegen gefunden." -ForegroundColor Green
+
+        # Nur anzeigen, wenn der Schalter gesetzt ist
+        if ($IncludeWarnings) {
+            Write-Host "`n=== Letzte Warnungen ===" -ForegroundColor Cyan
+            $warningEvents = Get-EventLog -LogName System -EntryType Warning -Newest 10 -ErrorAction SilentlyContinue
+            if ($warningEvents) {
+                foreach ($event in $warningEvents) {
+                    $msg = $event.Message -replace "`r|`n"," " -replace '\s{2,}',' '
+                    if (-not $ShowDetails) {
+                        $msg = if ($msg.Length -gt 100) { $msg.Substring(0,100) + "..." } else { $msg }
+                    }
+
+                    Write-Host "`n[~] Warnung $($event.EventID) | $($event.Source) | $($event.TimeGenerated)" -ForegroundColor DarkYellow
+                    Write-Host "    Nachricht: $msg"
+                }
+            } else {
+                Write-Host "Keine Warnereignisse in den letzten Einträgen gefunden." -ForegroundColor Green
+            }
         }
     }
     catch {
         Write-Warning "Eventlogs konnten nicht gelesen werden: $($_.Exception.Message)"
-        Write-Host "Hinweis: Fuehren Sie das Skript als Administrator aus, um Eventlogs zu lesen." -ForegroundColor Yellow
+        Write-Host "Hinweis: Führen Sie das Skript als Administrator aus, um Eventlogs zu lesen." -ForegroundColor Yellow
     }
 }
 
@@ -959,7 +1002,106 @@ function New-ADUserWithGroup {
     }
     Pause
 }
+# =============================
+# Funktionen für Fehlerbehebung
+# =============================
+function Fix-SystemFiles {
+    Write-Host "`n[Systemdateien prüfen & reparieren]" -ForegroundColor Cyan
+    sfc /scannow
+    Write-Host "`nWenn Fehler gefunden wurden, zusätzlich ausführen: DISM /Online /Cleanup-Image /RestoreHealth" -ForegroundColor Yellow
+}
 
+function Fix-DriversAndHardware {
+    Write-Host "`n[Treiber & Hardware prüfen]" -ForegroundColor Cyan
+    Write-Host " - Öffne Geräte-Manager mit: devmgmt.msc"
+    Write-Host " - Prüfe optional Treiber-Updates über Windows Update."
+    Write-Host " - Festplattenprüfung starten:" -ForegroundColor Yellow
+    chkdsk C: /scan
+}
+
+function Fix-Network {
+    Write-Host "`n[Netzwerk & DNS reparieren]" -ForegroundColor Cyan
+    Write-Host " - TCP/IP Stack zurücksetzen..."
+    netsh int ip reset
+    Write-Host " - Winsock zurücksetzen..."
+    netsh winsock reset
+    Write-Host " - DNS-Cache leeren..."
+    ipconfig /flushdns
+    Write-Host "`nTest Internetverbindung:" -ForegroundColor Yellow
+    Test-Connection google.com -Count 2
+}
+
+function Fix-MemoryAndPerformance {
+    Write-Host "`n[Speicher & Leistung prüfen]" -ForegroundColor Cyan
+    Write-Host " - Starte Windows-Speicherdiagnose: mdsched.exe"
+    Write-Host " - Performance-Monitor öffnen: perfmon"
+    Get-Process | Sort-Object CPU -Descending | Select-Object -First 10
+}
+
+function Fix-EventLogAnalysis {
+    Write-Host "`n[Eventlogs analysieren]" -ForegroundColor Cyan
+    Write-Host " - Kritische und Fehler-Events (System, letzte 20):"
+    Get-WinEvent -LogName System | Where-Object { $_.Level -le 2 } | 
+        Select-Object TimeCreated, Id, ProviderName, Message -First 20
+    Write-Host "`nTipp: Für Details EventID.net oder Microsoft Docs konsultieren." -ForegroundColor Yellow
+}
+
+function Fix-AutomatedTroubleshooters {
+    Write-Host "`n[Automatische Problembehandlung]" -ForegroundColor Cyan
+    Write-Host "Verfügbare Diagnosen:"
+    Write-Host " - WindowsUpdate: msdt.exe /id WindowsUpdateDiagnostic"
+    Write-Host " - Netzwerk: msdt.exe /id NetworkDiagnosticsNetworkAdapter"
+    Write-Host " - Audio: msdt.exe /id AudioPlaybackDiagnostic"
+    Write-Host " - Bluescreen: msdt.exe /id BlueScreenDiagnostic"
+}
+
+function Fix-RegistryAndAdvanced {
+    Write-Host "`n[Registry & erweiterte Analyse]" -ForegroundColor Cyan
+    Write-Host " - Registry öffnen: regedit"
+    Write-Host " - Mit Get-WinEvent gezielt filtern, z. B. nur Fehler Level 2."
+    Get-WinEvent -LogName Application -MaxEvents 5 | Format-List
+}
+
+function Fix-SystemRestore {
+    Write-Host "`n[Systemwiederherstellung & Backup]" -ForegroundColor Cyan
+    Write-Host " - Systemwiederherstellung starten: rstrui.exe"
+    Write-Host " - Für schwerwiegende Probleme: Inplace-Upgrade von Windows durchführen."
+    Write-Host " - Backup prüfen: Systemsteuerung -> Sichern und Wiederherstellen"
+}
+
+# =============================
+# Untermenü: Allgemeine Fehlerbehebung
+# =============================
+function Show-FixMenu {
+    do {
+        Clear-Host
+        Write-Host "`n==== Allgemeine Fehlerbehebung ====" -ForegroundColor Magenta
+        Write-Host "1: Systemdateien prüfen & reparieren (sfc, DISM)"
+        Write-Host "2: Treiber & Hardware überprüfen (Geräte-Manager, chkdsk)"
+        Write-Host "3: Netzwerk & DNS zurücksetzen (netsh, flushdns)"
+        Write-Host "4: Speicher & Leistung prüfen (mdsched, perfmon)"
+        Write-Host "5: Eventlogs analysieren (kritische Fehler)"
+        Write-Host "6: Automatische Problembehandlungen (msdt)"
+        Write-Host "7: Registry & erweiterte Analyse"
+        Write-Host "8: Systemwiederherstellung & Backup"
+        Write-Host "Q: Zurück zum Hauptmenü"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Fix-SystemFiles; Pause }
+            "2" { Fix-DriversAndHardware; Pause }
+            "3" { Fix-Network; Pause }
+            "4" { Fix-MemoryAndPerformance; Pause }
+            "5" { Fix-EventLogAnalysis; Pause }
+            "6" { Fix-AutomatedTroubleshooters; Pause }
+            "7" { Fix-RegistryAndAdvanced; Pause }
+            "8" { Fix-SystemRestore; Pause }
+            "Q" { return }
+            default { Write-Warning "Ungültige Auswahl"; Pause }
+        }
+    } while ($true)
+}
 # --------------------------
 # Hauptmenü Funktion
 # --------------------------
@@ -1066,6 +1208,36 @@ function Show-ADMenu {
         }
     } while ($true)
 }
+function Show-FixMenu {
+    do {
+        Clear-Host
+        Write-Host "`n==== Allgemeine Fehlerbehebung ====" -ForegroundColor Magenta
+        Write-Host "1: Systemdateien prüfen & reparieren      (sfc, DISM)"
+        Write-Host "2: Treiber & Hardware überprüfen          (Geräte-Manager, chkdsk)"
+        Write-Host "3: Netzwerk & DNS zurücksetzen            (netsh, flushdns)"
+        Write-Host "4: Speicher & Leistung prüfen             (mdsched, perfmon)"
+        Write-Host "5: Eventlogs analysieren                  (kritische Fehler anzeigen)"
+        Write-Host "6: Automatische Problembehandlungen       (msdt-Tools)"
+        Write-Host "7: Registry & erweiterte Analyse          (gezielte Events, Registry)"
+        Write-Host "8: Systemwiederherstellung & Backup       (rstrui, Sicherung prüfen)"
+        Write-Host "Q: Zurück zum Hauptmenü"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Fix-SystemFiles; Pause }
+            "2" { Fix-DriversAndHardware; Pause }
+            "3" { Fix-Network; Pause }
+            "4" { Fix-MemoryAndPerformance; Pause }
+            "5" { Fix-EventLogAnalysis; Pause }
+            "6" { Fix-AutomatedTroubleshooters; Pause }
+            "7" { Fix-RegistryAndAdvanced; Pause }
+            "8" { Fix-SystemRestore; Pause }
+            "Q" { return }
+            default { Write-Warning "Ungültige Auswahl"; Pause }
+        }
+    } while ($true)
+}
 
 function Show-MainMenu {
     do {
@@ -1081,6 +1253,7 @@ function Show-MainMenu {
         Write-Host "7: Netzwerk Konfiguration"
         Write-Host "8: Drucker installieren (nach Raum)"
         Write-Host "9: Voraussetzungen installieren"
+        Write-Host "10: Allgemeine Fehlerbehebung (Tools & Checks)"
         Write-Host "Q: Beenden"
         
         $choice = Read-Host "`nIhre Auswahl"
@@ -1095,6 +1268,7 @@ function Show-MainMenu {
             "7" { Show-NetworkMenu }
             "8" { Install-PrinterByRoom }
             "9" { Show-RequirementsMenu }
+            "10" { Show-FixMenu }
             "Q" { 
                 Write-Host "Admin-Toolkit wird beendet, bis Baldrian." -ForegroundColor Cyan
                 exit 

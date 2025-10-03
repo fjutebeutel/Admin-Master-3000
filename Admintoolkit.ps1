@@ -130,6 +130,7 @@ function Test-NetworkAndServices {
     catch {
         Write-Warning "Fehler beim Netzwerk-Check: $($_.Exception.Message)"
     }
+    Pause-Script
 }
 
 # --------------------------
@@ -147,9 +148,18 @@ function Run-Updates {
         Write-Host "Suche nach Windows Updates..."
         $updates = Get-WUList -ErrorAction Stop
         if ($updates) {
-            Write-Host "$($updates.Count) Updates verfuegbar. Installation wird gestartet..."
-            Install-WindowsUpdate -AcceptAll -AutoReboot:$false -ErrorAction Stop
-            Write-Host "Updates installiert. Neustart moeglicherweise erforderlich." -ForegroundColor Green
+            Write-Host "$($updates.Count) Updates verfuegbar." -ForegroundColor Yellow
+            foreach ($update in $updates) {
+                Write-Host "`nTitel: $($update.Title)"
+                Write-Host "KB:    $($update.KBArticleIDs -join ', ')"
+                Write-Host "Größe: $($update.Size) MB"
+                $answer = Read-Host "Soll dieses Update installiert werden? (J/N)"
+                if ($answer -match "^[JjYy]$") {
+                    Install-WindowsUpdate -KBArticleID $update.KBArticleIDs -AcceptAll -AutoReboot:$false -Verbose
+                } else {
+                    Write-Host "Übersprungen: $($update.Title)" -ForegroundColor Yellow
+                }
+            }
         } else {
             Write-Host "Keine Windows Updates verfuegbar." -ForegroundColor Green
         }
@@ -160,14 +170,30 @@ function Run-Updates {
     Write-Host "`n=== Anwendungsupdates (winget) ===" -ForegroundColor Cyan
     try { 
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget upgrade --all --accept-package-agreements --accept-source-agreements
+            $updates = winget upgrade | Select-String "^\S"   # Liste filtern
+            if ($updates) {
+                foreach ($line in $updates) {
+                    $parts = $line.ToString().Split(" ", 2)
+                    $id = $parts[0]
+                    Write-Host "`nGefundenes App-Update: $line"
+                    $answer = Read-Host "Soll diese App aktualisiert werden? (J/N)"
+                    if ($answer -match "^[JjYy]$") {
+                        winget upgrade --id $id --accept-package-agreements --accept-source-agreements
+                    } else {
+                        Write-Host "Übersprungen: $id" -ForegroundColor Yellow
+                    }
+                }
+            } else {
+                Write-Host "Keine App-Updates verfuegbar." -ForegroundColor Green
+            }
         } else {
             Write-Warning "winget nicht gefunden. Installieren Sie winget von https://github.com/microsoft/winget-cli"
         }
     }
     catch { Write-Warning "winget-Update fehlgeschlagen: $($_.Exception.Message)" }
-}
 
+    Pause-Script
+}
 # --------------------------
 # Fehleranalyse
 # --------------------------
@@ -502,16 +528,16 @@ function Install-PrinterByRoom {
         Write-Warning "Fehler bei der Druckerinstallation: $($_.Exception.Message)"
     }
     
-    Pause
+    Pause-Script
 }
 
 # --------------------------
 # Hilfsfunktion für Pause
 # --------------------------
-function Pause {
-    Write-Host "`nDrücken Sie eine Taste, um fortzufahren..."
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+function Pause-Script {
+    [void](Read-Host "`nWeiter mit [Enter] ...")
 }
+
 
 # --------------------------
 # Installationsfunktionen
@@ -548,7 +574,7 @@ function Install-IIS {
     } catch {
         Write-Warning "Fehler bei der IIS-Installation: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 function Install-RSAT {
@@ -594,7 +620,7 @@ function Install-RSAT {
     } catch {
         Write-Warning "Fehler bei der RSAT-Installation: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 function Install-OpenSSH {
@@ -634,7 +660,7 @@ function Install-OpenSSH {
     } catch {
         Write-Warning "Fehler bei der OpenSSH-Installation: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 
@@ -674,7 +700,7 @@ function Install-SNMP {
     } catch {
         Write-Warning "Fehler bei der SNMP-Installation: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 function Show-RequirementsMenu {
@@ -771,7 +797,7 @@ function Install-Sysinternals {
     } catch {
         Write-Warning "Fehler beim Herunterladen der Sysinternals-Tools: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 function Configure-PowerShell {
     try {
@@ -801,7 +827,7 @@ function Configure-PowerShell {
     } catch {
         Write-Warning "Fehler bei der PowerShell-Konfiguration: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 function Install-AllRequirements {
     try {
@@ -831,7 +857,7 @@ function Install-AllRequirements {
     } catch {
         Write-Warning "Fehler bei der Installation: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 function Test-Requirements {
     Clear-Host
@@ -876,7 +902,7 @@ function Test-Requirements {
     else { Write-Host " ✗ Nicht konfiguriert ($executionPolicy)" -ForegroundColor Red }
     
     Write-Host "`nÜberprüfung abgeschlossen." -ForegroundColor Yellow
-    Pause
+    Pause-Script
 }
 
 # --------------------------
@@ -903,9 +929,9 @@ function New-ADUser {
     } catch {
         Write-Warning "Fehler beim Anlegen des Benutzers: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
-
+agentactivationruntimestarter.exe
 function New-ADGroup {
     try {
         if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
@@ -923,7 +949,7 @@ function New-ADGroup {
     } catch {
         Write-Warning "Fehler beim Anlegen der Gruppe: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 function New-ADUserWithGroup {
@@ -957,12 +983,52 @@ function New-ADUserWithGroup {
     } catch {
         Write-Warning "Fehler bei Benutzer- und Gruppenerstellung: $($_.Exception.Message)"
     }
-    Pause
+    Pause-Script
 }
 
 # --------------------------
 # Hauptmenü Funktion
 # --------------------------
+function Show-MainMenu {
+    do {
+        Clear-Host
+        Get-Weather
+        Write-Host "`n==== Admin-Master 3000 ====" -ForegroundColor Magenta
+        Write-Host "1: Systeminformationen anzeigen"
+        Write-Host "2: Installieren und Konfigurieren"
+        Write-Host "3: Netzwerk und Dienste pruefen"
+        Write-Host "4: Windows und App Updates"
+        Write-Host "5: Active Directory Verwaltung"
+        Write-Host "6: Systemfehler anzeigen"
+        Write-Host "7: Netzwerk Konfiguration"
+        Write-Host "8: Drucker installieren (nach Raum)"
+        Write-Host "9: Voraussetzungen installieren"
+        Write-Host "Q: Beenden"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Show-SystemInfo; Pause-Script }
+            "2" { Show-InstallMenu; Pause-Script }
+            "3" { Test-NetworkAndServices; Pause-Script }
+            "4" { Run-Updates; Pause-Script }
+            "5" { Show-ADMenu; Pause-Script }
+            "6" { Show-SystemErrors; Pause-Script }
+            "7" { Show-NetworkMenu; Pause-Script }
+            "8" { Install-PrinterByRoom; Pause-Script }
+            "9" { Show-RequirementsMenu; Pause-Script }
+            "Q" { 
+                Write-Host "Admin-Toolkit wird beendet, bis Baldrian." -ForegroundColor Cyan
+                exit 
+            }
+            default {
+                Write-Warning "Ungueltige Auswahl"
+                Pause-Script
+            }
+        }
+    } while ($true)
+}
+
 function Show-InstallMenu {
     do {
         Clear-Host
@@ -1005,19 +1071,20 @@ function Show-SysinternalsMenu {
         $choice = Read-Host "`nIhre Auswahl"
         
         switch ($choice) {
-            "1" { Start-SysinternalTool -ExeName "procexp.exe" }
-            "2" { Start-SysinternalTool -ExeName "tcpview.exe" }
-            "3" { Start-SysinternalTool -ExeName "autoruns.exe" }
-            "4" { Start-SysinternalTool -ExeName "procmon.exe" }
-            "5" { Start-SysinternalTool -ExeName "bginfo.exe" }
+            "1" { Start-SysinternalTool -ExeName "procexp.exe"; Pause-Script }
+            "2" { Start-SysinternalTool -ExeName "tcpview.exe"; Pause-Script }
+            "3" { Start-SysinternalTool -ExeName "autoruns.exe"; Pause-Script }
+            "4" { Start-SysinternalTool -ExeName "procmon.exe"; Pause-Script }
+            "5" { Start-SysinternalTool -ExeName "bginfo.exe"; Pause-Script }
             "Q" { return }
             default {
                 Write-Warning "Ungueltige Auswahl"
-                Pause
+                Pause-Script
             }
         }
     } while ($true)
 }
+
 
 function Show-NetworkMenu {
     do {
@@ -1031,17 +1098,18 @@ function Show-NetworkMenu {
         $choice = Read-Host "`nIhre Auswahl"
         
         switch ($choice) {
-            "1" { Set-NetworkConfig }
-            "2" { Set-VlanTag }
-            "3" { Show-NetworkAdapters; Pause }
+            "1" { Set-NetworkConfig; Pause-Script }
+            "2" { Set-VlanTag; Pause-Script }
+            "3" { Show-NetworkAdapters; Pause-Script }
             "Q" { return }
             default {
                 Write-Warning "Ungueltige Auswahl"
-                Pause
+                Pause-Script
             }
         }
     } while ($true)
 }
+
 
 function Show-ADMenu {
     do {
@@ -1055,58 +1123,17 @@ function Show-ADMenu {
         $choice = Read-Host "`nIhre Auswahl"
         
         switch ($choice) {
-            "1" { New-ADUser }
-            "2" { New-ADGroup }
-            "3" { New-ADUserWithGroup }
+            "1" { New-ADUser; Pause-Script }
+            "2" { New-ADGroup; Pause-Script }
+            "3" { New-ADUserWithGroup; Pause-Script }
             "Q" { return }
             default {
                 Write-Warning "Ungueltige Auswahl"
-                Pause
+                Pause-Script
             }
         }
     } while ($true)
 }
-
-function Show-MainMenu {
-    do {
-        Clear-Host
-        Get-Weather
-        Write-Host "`n==== Admin-Master 3000 ====" -ForegroundColor Magenta
-        Write-Host "1: Systeminformationen anzeigen"
-        Write-Host "2: Installieren und Konfigurieren"
-        Write-Host "3: Netzwerk und Dienste pruefen"
-        Write-Host "4: Windows und App Updates"
-        Write-Host "5: Active Directory Verwaltung"
-        Write-Host "6: Systemfehler anzeigen"
-        Write-Host "7: Netzwerk Konfiguration"
-        Write-Host "8: Drucker installieren (nach Raum)"
-        Write-Host "9: Voraussetzungen installieren"
-        Write-Host "Q: Beenden"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Show-SystemInfo; Pause }
-            "2" { Show-InstallMenu }
-            "3" { Test-NetworkAndServices; Pause }
-            "4" { Run-Updates; Pause }
-            "5" { Show-ADMenu }
-            "6" { Show-SystemErrors; Pause }
-            "7" { Show-NetworkMenu }
-            "8" { Install-PrinterByRoom }
-            "9" { Show-RequirementsMenu }
-            "Q" { 
-                Write-Host "Admin-Toolkit wird beendet, bis Baldrian." -ForegroundColor Cyan
-                exit 
-            }
-            default {
-                Write-Warning "Ungueltige Auswahl"
-                Pause
-            }
-        }
-    } while ($true)
-}
-
 # ----- Skriptstart -----
 # Aufruf des Hauptmenüs, damit das Skript beim Start läuft
 Show-MainMenu

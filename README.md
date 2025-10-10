@@ -1,7 +1,6 @@
 # ⚙️ Admin Master 3000 – Das PowerShell-Toolkit für Admins
 
 **Admin Master 3000** ist ein vielseitiges PowerShell-Toolkit für Windows-Administratoren, das Routineaufgaben wie System- und App-Updates automatisiert.  
-Das Skript kombiniert Windows-Updates über `PSWindowsUpdate` und Anwendungs-Updates über `winget` in einer einheitlichen, interaktiven Oberfläche – mit klarer Ausgabe, UTF-8-Fix, Fortschrittsanzeige und optionalem Spinner-Effekt.
 
 ---
 

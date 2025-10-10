@@ -14,6 +14,16 @@ try {
 } catch {
     Write-Warning "Fehler beim Setzen des Encodings: $($_.Exception.Message)"
 }
+# --- UTF-8 Enforcement Block ---
+$path = $MyInvocation.MyCommand.Path
+$content = Get-Content -Raw -Encoding Byte -Path $path
+if (-not ($content[0] -eq 0xEF -and $content[1] -eq 0xBB -and $content[2] -eq 0xBF)) {
+    Write-Host "Konvertiere Skript nach UTF-8..." -ForegroundColor Yellow
+    $text = [System.Text.Encoding]::Default.GetString($content)
+    [System.IO.File]::WriteAllText($path, $text, [System.Text.UTF8Encoding]($false))
+}
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
 
 # Desktop/Log-Verzeichnis
 $DesktopPath = [Environment]::GetFolderPath("Desktop")
@@ -132,6 +142,9 @@ function Test-NetworkAndServices {
 # --------------------------
 # Updates (Windows + Apps)
 # --------------------------
+# --------------------------
+# Updates (Windows + Apps)
+# --------------------------
 function Invoke-Updates {
     Write-Host "`n=== Windows Updates ===" -ForegroundColor Cyan
     try {
@@ -163,50 +176,84 @@ function Invoke-Updates {
         } else {
             Write-Host "Keine Windows Updates verfügbar." -ForegroundColor Green
         }
-    } catch {
+    }
+    catch {
         Write-Warning "Windows Update via Modul nicht möglich: $($_.Exception.Message)"
     }
-    Write-Host "`n=== Anwendungsupdates (winget) ===" -ForegroundColor Cyan
-try {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "Suche nach App-Updates..."
-        # Spinner unterdrücken, Kopfzeilen filtern
-        $lines = winget upgrade --accept-source-agreements --disable-interactivity |
-            Where-Object { $_ -and ($_ -notmatch '(^Name\s+Id\s+Version|^-+$)') }
+    # ========================================================
+    # Winget-Update-Skript mit UTF-8- und Spinner-Fix
+    # ========================================================
 
-        if (-not $lines -or $lines.Count -eq 0) {
-            Write-Host "Keine App-Updates verfügbar." -ForegroundColor Green
-        } else {
-            foreach ($line in $lines) {
-                # Nur sinnvolle Zeilen mit Buchstaben/Zahlen
-                if ($line -match '^[\w]') {
-                    $parts = $line -split '\s{2,}'
-                    if ($parts.Count -ge 3) {
-                        $name = $parts[0].Trim()
-                        $id = $parts[1].Trim()
-                        $versionInfo = $parts[2].Trim()
-                        Write-Host "`nName: $name"
-                        Write-Host "ID:   $id"
-                        Write-Host "Info: $versionInfo"
-                        $ans = Read-Host "Diese App aktualisieren? (J/N)"
-                        if ($ans -match '^[JjYy]$') {
-                            Write-Host "Starte Update für $name ($id)..." -ForegroundColor Cyan
-                            winget upgrade --id $id --accept-package-agreements --accept-source-agreements
-                        } else {
-                            Write-Host "Übersprungen: $name" -ForegroundColor Yellow
+    # UTF-8 erzwingen für Ein- und Ausgabe (gegen Ã¼ / â–ˆ Fehler)
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
+    $ProgressPreference = 'SilentlyContinue'
+    Write-Host "`n=== Anwendungsupdates (winget) ===" -ForegroundColor Cyan
+    try {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            Write-Host "Suche nach App-Updates..." -ForegroundColor Gray
+
+            # Winget-Ausgabe filtern (Kopfzeilen entfernen)
+            $lines = winget upgrade --accept-source-agreements --disable-interactivity |
+                Where-Object { $_ -and ($_ -notmatch '(^Name\s+Id\s+Version|^-+$)') }
+
+            if (-not $lines -or $lines.Count -eq 0) {
+                Write-Host "Keine App-Updates verfügbar." -ForegroundColor Green
+            }
+            else {
+                foreach ($line in $lines) {
+                    if ($line -match '^[\w]') {
+                        $parts = $line -split '\s{2,}'
+                        if ($parts.Count -ge 3) {
+                            $name = $parts[0].Trim()
+                            $id = $parts[1].Trim()
+                            $versionInfo = $parts[2].Trim()
+
+                            Write-Host "`nName: $name"
+                            Write-Host "ID:   $id"
+                            Write-Host "Info: $versionInfo"
+
+                            $ans = Read-Host "Diese App aktualisieren? (J/N)"
+                            if ($ans -match '^[JjYy]$') {
+                                Write-Host "Starte Update für $name ($id)..." -ForegroundColor Cyan
+
+                                # Spinner anzeigen, während winget im Hintergrund läuft
+                                $spinner = @('|', '/', '-', '\')
+                                $job = Start-Job -ScriptBlock {
+                                    winget upgrade --id $using:id --accept-package-agreements --accept-source-agreements --disable-interactivity
+                                }
+
+                                while ($job.State -eq 'Running') {
+                                    foreach ($s in $spinner) {
+                                        Write-Host -NoNewline "`r$s"
+                                        Start-Sleep -Milliseconds 120
+                                        if ($job.State -ne 'Running') { break }
+                                    }
+                                }
+
+                                # Job-Ergebnis anzeigen
+                                Receive-Job $job | Out-Host
+                                Remove-Job $job
+
+                                Write-Host "`rFertig installiert!       " -ForegroundColor Green
+                            }
+                            else {
+                                Write-Host "Übersprungen: $name" -ForegroundColor Yellow
+                            }
                         }
                     }
                 }
             }
         }
-    } else {
-        Write-Warning "winget nicht gefunden. Installieren Sie winget von https://github.com/microsoft/winget-cli"
+        else {
+            Write-Warning "winget nicht gefunden. Installieren Sie winget von https://github.com/microsoft/winget-cli"
+        }
     }
-}
-catch {
-    Write-Warning "winget-Update fehlgeschlagen: $($_.Exception.Message)"
-}
-Pause-Script
+    catch {
+        Write-Warning "winget-Update fehlgeschlagen: $($_.Exception.Message)"
+    }
+
+    Pause-Script
 }
 # --------------------------
 # Fehleranalyse

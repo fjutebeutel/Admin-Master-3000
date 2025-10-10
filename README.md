@@ -1,6 +1,6 @@
-# ⚙️ Admin Master 3000 – Das PowerShell-Toolkit für Admins
+# ⚙️Sysmate – Das PowerShell-Toolkit für Admins
 
-**Admin Master 3000** ist ein vielseitiges PowerShell-Toolkit für Windows-Administratoren, das Routineaufgaben wie System- und App-Updates automatisiert.  
+**Sysmate** ist ein vielseitiges PowerShell-Toolkit für Windows-Administratoren, das Routineaufgaben wie System- und App-Updates automatisiert.  
 
 ---
 

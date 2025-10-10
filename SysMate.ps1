@@ -1,23 +1,7 @@
 ﻿# ==========================================
 # Admin-Toolkit fuer Windows
 # ==========================================
-# ==========================================
-# Sysmate fuer Windows
-#
-<#
-.SYNOPSIS
-SysMate – Dein smarter PowerShell-Begleiter für System- und App-Wartung.
 
-.DESCRIPTION
-SysMate kombiniert Windows- und Anwendungsupdates in einem einzigen interaktiven Toolkit.
-Es bietet klare Ausgabe, UTF-8-Fix, Fortschrittsanzeige und Spinner-Animationen – ideal für Admins,
-die schnell, sauber und ohne GUI arbeiten wollen.
-
-.AUTHOR
-fjutebeutel
-.GITHUB
-https://github.com/fjutebeutel/SysMate
-#>
 # Pruefung auf Administratorrechte
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Dieses Skript erfordert Administratorrechte. Bitte als Administrator ausfuehren."

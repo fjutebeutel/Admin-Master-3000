@@ -4,7 +4,7 @@
 Von **System- und Netzwerkchecks**, über **Druckerinstallation**, **Systembereinigung** bis hin zu **Windows- und App-Updates** –  
 SysMate bündelt alles in einem interaktiven, farbigen und verständlichen Interface.
 
-> 🧠 Entwickelt von Admins für Admins – ein All-in-One-Wartungstool mit Stil und Verstand.
+> 🧠 Entwickelt für Admins – ein All-in-One-Wartungstool mit Stil und Verstand.
 
 ---
 

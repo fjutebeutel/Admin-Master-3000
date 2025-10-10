@@ -97,6 +97,9 @@ SysMate bündelt alles in einem interaktiven, farbigen und verständlichen Inter
 - 🛡️ Läuft stabil, auch wenn einzelne Module nicht verfügbar sind.
 
 ---
+##    ❤️ Projektidee
+
+Dieses Toolkit entstand in der FISI Ausbildung als Idee, häufige Admin-Aufgaben einfach, übersichtlich und interaktiv zu gestalten. Für weitere Ideen was die Funktionalität betrifft, schreibt mir.
 
 ## 🧩 Nutzung
 
@@ -105,7 +108,3 @@ SysMate bündelt alles in einem interaktiven, farbigen und verständlichen Inter
 . .\SysMate.ps1
 Invoke-Updates
 
-##    ❤️ Projektidee
-
-Dieses Toolkit entstand in der FISI Ausbildung als Idee, häufige Admin-Aufgaben einfach, übersichtlich und interaktiv zu gestalten – ganz ohne endlose Befehlslisten.
-Es ist für alle gedacht, die regelmäßig Systeme pflegen, Software aktuell halten und sich dabei ein wenig Komfort wünschen.

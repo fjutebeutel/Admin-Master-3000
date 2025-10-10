@@ -1,28 +1,37 @@
-🛠️ Admin Master 3000
-Das ultimative, menügeführte PowerShell-Toolkit für Windows-Systemadministratoren.
+# ⚙️ Admin Master 3000 – Das PowerShell-Toolkit für Admins
 
-Entstanden aus der täglichen Praxis im Rechenzentrum vereint der Admin Master 3000 alle häufigen Aufgaben in einer einzigen, konsolenbasierten Oberfläche.
-Er automatisiert repetitive Jobs, beschleunigt die Fehlersuche und macht die Systemadministration effizienter zumindest so die Idee.
+**Admin Master 3000** ist ein vielseitiges PowerShell-Toolkit für Windows-Administratoren, das Routineaufgaben wie System- und App-Updates automatisiert.  
+Das Skript kombiniert Windows-Updates über `PSWindowsUpdate` und Anwendungs-Updates über `winget` in einer einheitlichen, interaktiven Oberfläche – mit klarer Ausgabe, UTF-8-Fix, Fortschrittsanzeige und optionalem Spinner-Effekt.
 
+---
 
+## 🚀 Highlights
 
+- 🔄 **Windows-Updates automatisch prüfen und installieren**  
+- 🧩 **App-Updates über `winget` interaktiv ausführen**  
+- 💬 **Benutzerfreundliche, farbige Konsolenausgabe**  
+- 🧠 **Korrekte UTF-8-Kodierung** – keine kaputten Umlaute oder Sonderzeichen  
+- 🌀 **Flüssige Spinner-Animation** bei laufenden Prozessen (keine neue Zeile pro Frame)  
+- 🧰 Alles in einer einzigen Funktion: `Invoke-Updates`
 
+---
 
+## 📦 Installation & Start
 
+1. **Repository klonen oder herunterladen**
 
-✨ Der Kommandant für deinen Admin-Alltag
-Warum zehn verschiedene Tools starten, wenn einer alles kann? Der Admin Master 3000 ist deine Zentrale für:
+   ```powershell
+   git clone https://github.com/fjutebeutel/Admin-Master-3000.git
+   cd Admin-Master-3000
+   PowerShell als Administrator öffnen
 
-🖥️ Systemdiagnose: Detaillierte Hardware- & Systeminformationen, Eventlog-Analyse, Live-Performance-Monitoring.
+🧠 Voraussetzungen
+  Windows System
+  PowerShell 5.1 oder neuer
+  Internetverbindung
+  Administratorrechte
 
-🌐 Netzwerkmanagement: IP-Konfiguration (DHCP/Static), VLAN-Tagging, Adapter-Details, Connectivity-Checks.
+  ❤️ Projektidee
 
-📦 Deployment: Ein-Klick-Installation von IIS, RSAT, OpenSSH, SNMP und der kompletten Sysinternals Suite.
-
-🔐 Active Directory: Schnelle Benutzer- und Gruppenerstellung für alltägliche Tasks.
-
-🖨️ Druckermanagement: Automatisierte Suche und Installation von Netzwerkdruckern per Raumnummer.
-
-🔄 Update-Management: Zentrale Updates für Windows und Winget-Applications.
-
-📊 Monitoring: Integrierte Wetteranzeige (basierend auf Standort) und System-Health-Checks.
+Dieses Toolkit entstand in der FISI Ausbildung als Idee, häufige Admin-Aufgaben einfach, übersichtlich und interaktiv zu gestalten – ganz ohne endlose Befehlslisten.
+Es ist für alle gedacht, die regelmäßig Systeme pflegen, Software aktuell halten und sich dabei ein wenig Komfort wünschen.

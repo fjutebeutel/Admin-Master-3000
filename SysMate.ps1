@@ -155,9 +155,7 @@ function Test-NetworkAndServices {
     Pause-Script
 }
 
-# --------------------------
-# Updates (Windows + Apps)
-# --------------------------
+
 # --------------------------
 # Updates (Windows + Apps)
 # --------------------------
@@ -1528,19 +1526,19 @@ function Show-MainMenu {
     do {
         Clear-Host
         Get-Weather
-        Write-Host "`n==== Admin-Master 3000 ====" -ForegroundColor Magenta
-        Write-Host "1: Systeminformationen anzeigen"
-        Write-Host "2: Installieren und Konfigurieren"
-        Write-Host "3: Netzwerk und Dienste pruefen"
-        Write-Host "4: Windows und App Updates"
-        Write-Host "5: Active Directory Verwaltung"
-        Write-Host "6: Systemfehler anzeigen"
-        Write-Host "7: Netzwerk Konfiguration"
-        Write-Host "8: Drucker installieren"
-        Write-Host "9: Voraussetzungen installieren"
+        Write-Host "`n==== Sysmate ===" -ForegroundColor Magenta
+        Write-Host "1:  Systeminformationen anzeigen"
+        Write-Host "2:  Installieren und Konfigurieren"
+        Write-Host "3:  Netzwerk und Dienste pruefen"
+        Write-Host "4:  Windows und App Updates"
+        Write-Host "5:  Active Directory Verwaltung"
+        Write-Host "6:  Systemfehler anzeigen"
+        Write-Host "7:  Netzwerk Konfiguration"
+        Write-Host "8:  Drucker installieren"
+        Write-Host "9:  Voraussetzungen installieren"
         Write-Host "10: Allgemeine Fehlerbehebung"
 		Write-Host "11: Connection Manager"
-        Write-Host "Q: Beenden"
+        Write-Host "Q:  Beenden"
         
         $choice = Read-Host "`nIhre Auswahl"
         

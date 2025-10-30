@@ -1,4 +1,4 @@
-﻿# ==========================================
+# ==========================================
 # Admin-Toolkit fuer Windows
 # ==========================================
 # ==========================================
@@ -1294,6 +1294,233 @@ function Show-ADMenu {
     } while ($true)
 }
 
+# ======================================================
+# Connection Manager (integrierte Vollversion)
+# Autor: Logi
+# ======================================================
+
+function Show-ConnectionManagerMenu {
+
+    # === interne Helper-Funktionen ===
+    try {
+        # Ermittelt Pfad des aktiven Skripts (egal wie gestartet)
+        if ($PSScriptRoot -and (Test-Path $PSScriptRoot)) {
+            $Script:ScriptDir = $PSScriptRoot
+        } else {
+            $Script:ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+        }
+        $Script:DataFile  = Join-Path $Script:ScriptDir "connections.csv"
+        $Script:Delimiter = ';'
+    } catch {
+        Write-Warning "Fehler beim Ermitteln des Skriptpfads: $($_.Exception.Message)"
+    }
+
+    function Ensure-DataPath {
+        if (-not (Test-Path $Script:DataFile)) {
+            "id${Script:Delimiter}Name${Script:Delimiter}OS${Script:Delimiter}IP${Script:Delimiter}Protocol${Script:Delimiter}Username${Script:Delimiter}Password${Script:Delimiter}Kommentar" |
+                Out-File -FilePath $Script:DataFile -Encoding UTF8 -Force
+            Write-Host "📁 Neue CSV angelegt: $Script:DataFile"
+        }
+    }
+
+    function Load-Connections {
+        Ensure-DataPath
+        try {
+            Import-Csv -Path $Script:DataFile -Delimiter $Script:Delimiter -ErrorAction Stop
+        } catch {
+            Write-Warning "⚠️ Fehler beim Laden der CSV-Datei: $_"
+            @()
+        }
+    }
+
+    function Save-Connections($list) {
+        Ensure-DataPath
+        try {
+            $list | Export-Csv -Path $Script:DataFile -Delimiter $Script:Delimiter -NoTypeInformation -Encoding UTF8 -Force
+            Write-Host "💾 Daten gespeichert unter $Script:DataFile"
+        } catch {
+            Write-Warning "❌ Fehler beim Speichern: $_"
+        }
+    }
+
+    function Show-List {
+        $list = Load-Connections
+        if (-not $list -or $list.Count -eq 0) {
+            Write-Host "Keine Einträge vorhanden." -ForegroundColor DarkGray
+            return
+        }
+        "{0,-4} {1,-25} {2,-10} {3,-15} {4,-6} {5,-15}" -f "ID","Name","OS","IP","Proto","User"
+        foreach ($e in $list) {
+            "{0,-4} {1,-25} {2,-10} {3,-15} {4,-6} {5,-15}" -f $e.id,$e.Name,$e.OS,$e.IP,$e.Protocol,$e.Username
+        }
+    }
+
+    function Get-NextId($list) {
+        if (-not $list -or $list.Count -eq 0) { return 1 }
+        $max = ($list | ForEach-Object { [int]$_.id } | Measure-Object -Maximum).Maximum
+        return ($max + 1)
+    }
+
+    function Add-Connection {
+        $list = Load-Connections
+        $id = Get-NextId $list
+        $Name = Read-Host "Name"
+        $OS   = Read-Host "OS (z.B. Windows/Linux)"
+        $IP   = Read-Host "IP-Adresse"
+        do {
+            $Proto = Read-Host "Protocol (rdp/ssh)"
+            $Proto = $Proto.ToLower()
+        } until ($Proto -in @('rdp','ssh'))
+        $User = Read-Host "Benutzername"
+        $Pass = Read-Host "Passwort (Klartext)"
+        $Comment = Read-Host "Kommentar (optional)"
+
+        $entry = [PSCustomObject]@{
+            id       = $id
+            Name     = $Name
+            OS       = $OS
+            IP       = $IP
+            Protocol = $Proto
+            Username = $User
+            Password = $Pass
+            Kommentar= $Comment
+        }
+
+        $list += $entry
+        Save-Connections $list
+        Write-Host "✅ Eintrag hinzugefügt (ID $id)."
+    }
+
+    function Edit-Connection {
+        $list = Load-Connections
+        if (-not $list -or $list.Count -eq 0) { Write-Host "Keine Einträge."; return }
+        Show-List
+        $id = Read-Host "ID zum Bearbeiten"
+        $entry = $list | Where-Object { $_.id -eq $id }
+        if (-not $entry) { Write-Host "ID nicht gefunden."; return }
+
+        $entry.Name      = Read-Host "Name [$($entry.Name)]" -Default $entry.Name
+        $entry.OS        = Read-Host "OS [$($entry.OS)]" -Default $entry.OS
+        $entry.IP        = Read-Host "IP [$($entry.IP)]" -Default $entry.IP
+        do {
+            $p = Read-Host "Protocol (rdp/ssh) [$($entry.Protocol)]" -Default $entry.Protocol
+            $p = $p.ToLower()
+        } until ($p -in @('rdp','ssh'))
+        $entry.Protocol  = $p
+        $entry.Username  = Read-Host "Benutzername [$($entry.Username)]" -Default $entry.Username
+        $entry.Password  = Read-Host "Passwort [$($entry.Password)]" -Default $entry.Password
+        $entry.Kommentar = Read-Host "Kommentar [$($entry.Kommentar)]" -Default $entry.Kommentar
+
+        $list = ($list | Where-Object { $_.id -ne $id }) + $entry | Sort-Object {[int]$_.id}
+        Save-Connections $list
+        Write-Host "✅ Eintrag $id aktualisiert."
+    }
+
+    function Remove-Connection {
+        $list = Load-Connections
+        if (-not $list -or $list.Count -eq 0) { Write-Host "Keine Einträge."; return }
+        Show-List
+        $id = Read-Host "ID zum Löschen"
+        $entry = $list | Where-Object { $_.id -eq $id }
+        if (-not $entry) { Write-Host "ID nicht gefunden."; return }
+        $confirm = Read-Host "Sicher löschen? (J/N)"
+        if ($confirm -notin @('J','j','Y','y')) { Write-Host "Abgebrochen."; return }
+        $list = $list | Where-Object { $_.id -ne $id }
+        Save-Connections $list
+        Write-Host "🗑️  Eintrag $id gelöscht."
+    }
+
+    function Backup-File {
+        Ensure-DataPath
+        $bak = Join-Path (Split-Path $Script:DataFile -Parent) ("connections_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".bak.csv")
+        Copy-Item -Path $Script:DataFile -Destination $bak -Force
+        Write-Host "💾 Backup erstellt: $bak"
+    }
+
+    # === Dynamische Subnetz-Erkennung ===
+    function Sort-Connections-ByActiveSubnet {
+        param([array]$Connections)
+        $localIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
+            $_.IPAddress -match '^\d+\.\d+\.\d+\.\d+$' -and
+            $_.IPAddress -notmatch '^169\.254' -and
+            $_.IPAddress -ne '127.0.0.1'
+        } | Select-Object InterfaceAlias, IPAddress
+
+        if (-not $localIPs) { return $Connections }
+
+        foreach ($conn in $Connections) {
+            $conn | Add-Member -NotePropertyName "MatchScore" -NotePropertyValue 0 -Force
+            $conn | Add-Member -NotePropertyName "Verfügbar" -NotePropertyValue "❌" -Force
+            foreach ($ip in $localIPs) {
+                $connNet3 = ($conn.IP -split '\.')[0..2] -join '.'
+                $localNet3 = ($ip.IPAddress -split '\.')[0..2] -join '.'
+                if ($connNet3 -eq $localNet3) {
+                    $conn.MatchScore = 5
+                    $conn.Verfügbar = "✅"
+                    break
+                }
+            }
+        }
+        return ($Connections | Sort-Object -Property MatchScore -Descending)
+    }
+
+    # === Verbindungsfunktion (RDP/SSH) ===
+    function Connect-Entry {
+        $list = Sort-Connections-ByActiveSubnet -Connections (Load-Connections)
+        if (-not $list -or $list.Count -eq 0) { Write-Host "Keine gespeicherten Einträge."; return }
+
+        "{0,-4} {1,-25} {2,-10} {3,-15} {4,-6} {5,-15} {6,-10}" -f "ID","Name","OS","IP","Proto","User","Verfügbar"
+        foreach ($e in $list) {
+            "{0,-4} {1,-25} {2,-10} {3,-15} {4,-6} {5,-15} {6,-10}" -f $e.id,$e.Name,$e.OS,$e.IP,$e.Protocol,$e.Username,$e.Verfügbar
+        }
+
+        $id = Read-Host "Gib die ID für die Verbindung ein"
+        $entry = $list | Where-Object { $_.id -eq $id }
+        if (-not $entry) { Write-Host "ID nicht gefunden."; return }
+
+        Write-Host "`nStarte Verbindung zu $($entry.Name) ($($entry.Protocol)) ..." -ForegroundColor Cyan
+        switch ($entry.Protocol) {
+            'rdp' {
+                cmd.exe /c "cmdkey /generic:TERMSRV/$($entry.IP) /user:`"$($entry.Username)`" /pass:`"$($entry.Password)`"" | Out-Null
+                $rdpFile = Join-Path $env:TEMP ("logi_rdp_$($entry.IP).rdp")
+                @"
+full address:s:$($entry.IP)
+prompt for credentials:i:0
+username:s:$($entry.Username)
+"@ | Set-Content -Path $rdpFile -Encoding ASCII
+                Start-Process "mstsc.exe" -ArgumentList $rdpFile
+            }
+            'ssh' { Start-Process "powershell.exe" "-NoExit -Command `"ssh $($entry.Username)@$($entry.IP)`"" }
+        }
+    }
+
+    # === Menü des Connection Managers ===
+    while ($true) {
+        Clear-Host
+        Write-Host "==== Connection Manager ====" -ForegroundColor Cyan
+        Write-Host "[L] Liste anzeigen"
+        Write-Host "[A] Hinzufügen"
+        Write-Host "[E] Editieren"
+        Write-Host "[D] Löschen"
+        Write-Host "[B] Backup"
+        Write-Host "[C] Connect"
+        Write-Host "[Q] Zurück zum Hauptmenü"
+        $c = Read-Host "Auswahl"
+
+        switch ($c.ToUpper()) {
+            'L' { Show-List; Pause-Script }
+            'A' { Add-Connection; Pause-Script }
+            'E' { Edit-Connection; Pause-Script }
+            'D' { Remove-Connection; Pause-Script }
+            'B' { Backup-File; Pause-Script }
+            'C' { Connect-Entry; Pause-Script }
+            'Q' { return }
+            default { Write-Host "Ungültige Auswahl."; Pause-Script }
+        }
+    }
+}
+
+
 # --------------------------
 # Hauptmenue
 # --------------------------
@@ -1312,6 +1539,7 @@ function Show-MainMenu {
         Write-Host "8: Drucker installieren"
         Write-Host "9: Voraussetzungen installieren"
         Write-Host "10: Allgemeine Fehlerbehebung"
+		Write-Host "11: Connection Manager"
         Write-Host "Q: Beenden"
         
         $choice = Read-Host "`nIhre Auswahl"
@@ -1327,6 +1555,7 @@ function Show-MainMenu {
             "8"  { Install-PrinterByRoom }
             "9"  { Show-RequirementsMenu }
             "10" { Show-FixMenu }
+			"11" { Show-ConnectionManagerMenu }
             "Q"  {
                 Write-Host "Admin-Toolkit wird beendet. Tschuess." -ForegroundColor Cyan
                 exit

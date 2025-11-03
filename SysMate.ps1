@@ -1,5 +1,5 @@
 # ==========================================
-# Admin-Toolkit fuer Windows
+# Admin-Toolkit fuer Windows (SysMate)
 # ==========================================
 # ==========================================
 # Sysmate fuer Windows
@@ -18,6 +18,7 @@ fjutebeutel
 .GITHUB
 https://github.com/fjutebeutel/SysMate
 #>
+
 # Pruefung auf Administratorrechte
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Dieses Skript erfordert Administratorrechte. Bitte als Administrator ausfuehren."
@@ -30,6 +31,7 @@ try {
 } catch {
     Write-Warning "Fehler beim Setzen des Encodings: $($_.Exception.Message)"
 }
+
 # --- UTF-8 Enforcement Block ---
 $path = $MyInvocation.MyCommand.Path
 $content = Get-Content -Raw -Encoding Byte -Path $path
@@ -41,17 +43,10 @@ if (-not ($content[0] -eq 0xEF -and $content[1] -eq 0xBB -and $content[2] -eq 0x
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
 
-# Desktop/Log-Verzeichnis
-$DesktopPath = [Environment]::GetFolderPath("Desktop")
-$LogRoot = Join-Path $DesktopPath "AdminLogs"
-if (!(Test-Path $LogRoot)) { New-Item -ItemType Directory -Path $LogRoot | Out-Null }
-
-# --------------------------
-# Sysinternals Suite (Auto-Download & Start)
-# --------------------------
-$SysinternalsPath = "C:\Tools\Sysinternals"
-$SysinternalsZip  = Join-Path $env:TEMP "SysinternalsSuite.zip"
-$SysinternalsUrl  = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
+# ---- Logging-Defaults (KEINE automatische Ordnererstellung!) ----
+$DesktopPath   = [Environment]::GetFolderPath("Desktop")
+$DefaultLogDir = Join-Path $DesktopPath "AdminLogs"   # nur als Vorschlag, wird NICHT automatisch erstellt
+$script:LastLogDir = $DefaultLogDir
 
 # --------------------------
 # Pause-Hilfsfunktion (host-unabhaengig)
@@ -59,6 +54,78 @@ $SysinternalsUrl  = "https://download.sysinternals.com/files/SysinternalsSuite.z
 function Pause-Script {
     [void](Read-Host "`nWeiter mit [Enter] ...")
 }
+
+# --------------------------
+# Zentrale Logging-Helfer
+# --------------------------
+function Resolve-LogPath {
+    param(
+        [Parameter(Mandatory)][string]$FeatureName
+    )
+    $suggest = if ($script:LastLogDir) { $script:LastLogDir } else { $DesktopPath }
+    $ask = Read-Host "Wo sollen die Logs gespeichert werden? Ordner ODER Datei angeben. [Default: $suggest]"
+    if ([string]::IsNullOrWhiteSpace($ask)) { $ask = $suggest }
+
+    if (Test-Path $ask) {
+        $it = Get-Item $ask
+        if ($it.PSIsContainer) {
+            $script:LastLogDir = $it.FullName
+            $fn = ("{0}_{1}.log" -f ($FeatureName -replace '[^\w\-]','_'), (Get-Date -Format 'yyyyMMdd_HHmmss'))
+            return (Join-Path $it.FullName $fn)
+        } else {
+            $script:LastLogDir = (Split-Path -Parent $it.FullName)
+            return $it.FullName
+        }
+    } else {
+        if ($ask -match '\.(log|txt)$') {
+            $dir = Split-Path -Parent $ask
+            if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $script:LastLogDir = $dir
+            return $ask
+        } else {
+            New-Item -ItemType Directory -Path $ask -Force | Out-Null
+            $script:LastLogDir = $ask
+            $fn = ("{0}_{1}.log" -f ($FeatureName -replace '[^\w\-]','_'), (Get-Date -Format 'yyyyMMdd_HHmmss'))
+            return (Join-Path $ask $fn)
+        }
+    }
+}
+
+function Invoke-WithOptionalLogging {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$FeatureName,
+        [Parameter(Mandatory)][scriptblock]$Action
+    )
+    $ans = Read-Host "Möchtest du '$FeatureName' protokollieren? (J/N)"
+    if ($ans -match '^[JjYy]$') {
+        $logPath = Resolve-LogPath -FeatureName $FeatureName
+        try {
+            Start-Transcript -Path $logPath -Append -ErrorAction Stop | Out-Null
+            Write-Host "Logging aktiv: $logPath" -ForegroundColor DarkGray
+        } catch {
+            Write-Warning "Konnte Transcript nicht starten: $($_.Exception.Message). Fahre ohne Logging fort."
+            $logPath = $null
+        }
+        try {
+            & $Action
+        } finally {
+            if ($logPath) {
+                try { Stop-Transcript | Out-Null } catch {}
+                Write-Host "Log gespeichert: $logPath" -ForegroundColor DarkGray
+            }
+        }
+    } else {
+        & $Action
+    }
+}
+
+# --------------------------
+# Sysinternals Suite (Auto-Download & Start)
+# --------------------------
+$SysinternalsPath = "C:\Tools\Sysinternals"
+$SysinternalsZip  = Join-Path $env:TEMP "SysinternalsSuite.zip"
+$SysinternalsUrl  = "https://download.sysinternals.com/files/SysinternalsSuite.zip"
 
 # --------------------------
 # Wetter
@@ -119,7 +186,8 @@ function Show-SystemInfo {
         Write-Warning "Fehler beim Auslesen der Systeminformationen: $($_.Exception.Message)"
     }
     Pause-Script
-    }
+}
+
 # --------------------------
 # Netzwerk & Dienste pruefen
 # --------------------------
@@ -154,7 +222,6 @@ function Test-NetworkAndServices {
     }
     Pause-Script
 }
-
 
 # --------------------------
 # Updates (Windows + Apps)
@@ -197,8 +264,6 @@ function Invoke-Updates {
     # ========================================================
     # Winget-Update-Skript mit UTF-8- und Spinner-Fix
     # ========================================================
-
-    # UTF-8 erzwingen für Ein- und Ausgabe (gegen Ã¼ / â–ˆ Fehler)
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     [Console]::InputEncoding  = [System.Text.Encoding]::UTF8
     $ProgressPreference = 'SilentlyContinue'
@@ -207,7 +272,6 @@ function Invoke-Updates {
         if (Get-Command winget -ErrorAction SilentlyContinue) {
             Write-Host "Suche nach App-Updates..." -ForegroundColor Gray
 
-            # Winget-Ausgabe filtern (Kopfzeilen entfernen)
             $lines = winget upgrade --accept-source-agreements --disable-interactivity |
                 Where-Object { $_ -and ($_ -notmatch '(^Name\s+Id\s+Version|^-+$)') }
 
@@ -231,7 +295,6 @@ function Invoke-Updates {
                             if ($ans -match '^[JjYy]$') {
                                 Write-Host "Starte Update für $name ($id)..." -ForegroundColor Cyan
 
-                                # Spinner anzeigen, während winget im Hintergrund läuft
                                 $spinner = @('|', '/', '-', '\')
                                 $job = Start-Job -ScriptBlock {
                                     winget upgrade --id $using:id --accept-package-agreements --accept-source-agreements --disable-interactivity
@@ -245,7 +308,6 @@ function Invoke-Updates {
                                     }
                                 }
 
-                                # Job-Ergebnis anzeigen
                                 Receive-Job $job | Out-Host
                                 Remove-Job $job
 
@@ -269,6 +331,7 @@ function Invoke-Updates {
 
     Pause-Script
 }
+
 # --------------------------
 # Fehleranalyse
 # --------------------------
@@ -552,7 +615,7 @@ function Test-TCPPort {
 }
 
 # -------------------------------------------------------------
-# Helper: SNMP‑Name eines Druckers ermitteln (falls snmpget vorhanden)
+# Helper: SNMP-Name eines Druckers ermitteln (falls snmpget vorhanden)
 # -------------------------------------------------------------
 function Get-SNMPPrinterName {
     param([string]$IPAddress)
@@ -706,7 +769,6 @@ function Install-PrinterByRoom {
     Pause-Script
 }
 
-
 # --------------------------
 # Installationsfunktionen
 # --------------------------
@@ -851,37 +913,6 @@ function Install-SNMP {
         Write-Warning "Fehler bei der SNMP-Installation: $($_.Exception.Message)"
     }
     Pause-Script
-}
-
-function Show-RequirementsMenu {
-    do {
-        Clear-Host
-        Write-Host "=== Voraussetzungen installieren ===" -ForegroundColor Cyan
-        Write-Host "1: RSAT Tools installieren"
-        Write-Host "2: OpenSSH-Server installieren"
-        Write-Host "3: SNMP-Dienst installieren"
-        Write-Host "4: IIS Webserver installieren"
-        Write-Host "5: Sysinternals Tools herunterladen"
-        Write-Host "6: PowerShell konfigurieren"
-        Write-Host "7: ALLE Voraussetzungen installieren"
-        Write-Host "8: Installationsstatus pruefen"
-        Write-Host "Q: Zurueck zum Hauptmenue"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Install-RSAT }
-            "2" { Install-OpenSSH }
-            "3" { Install-SNMP }
-            "4" { Install-IIS }
-            "5" { Install-Sysinternals }
-            "6" { Set-PowerShellConfiguration }
-            "7" { Install-AllPrerequisites }
-            "8" { Test-Requirements }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
 }
 
 function Initialize-Sysinternals {
@@ -1048,7 +1079,7 @@ function New-ADUser {
     }
     Pause-Script
 }
-agentactivationruntimestarter.exe
+
 function New-ADGroup {
     try {
         if (-not (Get-Module -ListAvailable -Name ActiveDirectory)) {
@@ -1162,146 +1193,14 @@ function Repair-SystemRestore {
     Pause-Script
 }
 
-function Show-FixMenu {
-    do {
-        Clear-Host
-        Write-Host "`n==== Allgemeine Fehlerbehebung ====" -ForegroundColor Magenta
-        Write-Host "1: Systemdateien pruefen & reparieren"
-        Write-Host "2: Treiber & Hardware pruefen"
-        Write-Host "3: Netzwerk & DNS zuruecksetzen"
-        Write-Host "4: Speicher & Leistung pruefen"
-        Write-Host "5: Eventlogs analysieren"
-        Write-Host "6: Automatische Problembehandlungen"
-        Write-Host "7: Registry & erweiterte Analyse"
-        Write-Host "8: Systemwiederherstellung & Backup"
-        Write-Host "Q: Zurueck"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Repair-SystemFiles }
-            "2" { Repair-DriversAndHardware }
-            "3" { Repair-Network }
-            "4" { Repair-MemoryAndPerformance }
-            "5" { Repair-EventLogAnalysis }
-            "6" { Repair-AutomatedTroubleshooters }
-            "7" { Repair-RegistryAndAdvanced }
-            "8" { Repair-SystemRestore }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
-}
-
-# --------------------------
-# Untermenues
-# --------------------------
-function Show-InstallMenu {
-    do {
-        Clear-Host
-        Write-Host "=== Installieren und Konfigurieren ===" -ForegroundColor Cyan
-        Write-Host "1: IIS Webserver installieren"
-        Write-Host "2: RSAT Tools installieren"
-        Write-Host "3: OpenSSH-Server installieren"
-        Write-Host "4: SNMP-Dienst installieren"
-        Write-Host "5: Sysinternals Tools verwalten"
-        Write-Host "6: PowerShell konfigurieren"
-        Write-Host "Q: Zurueck"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Install-IIS }
-            "2" { Install-RSAT }
-            "3" { Install-OpenSSH }
-            "4" { Install-SNMP }
-            "5" { Show-SysinternalsMenu }
-            "6" { Set-PowerShellConfiguration }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
-}
-
-function Show-SysinternalsMenu {
-    do {
-        Clear-Host
-        Write-Host "=== Sysinternals Tools ===" -ForegroundColor Cyan
-        Write-Host "1: Process Explorer"
-        Write-Host "2: TCPView"
-        Write-Host "3: Autoruns"
-        Write-Host "4: Process Monitor"
-        Write-Host "5: BGInfo"
-        Write-Host "Q: Zurueck"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Start-SysinternalsTool -ExeName "procexp.exe"; Pause-Script }
-            "2" { Start-SysinternalsTool -ExeName "tcpview.exe"; Pause-Script }
-            "3" { Start-SysinternalsTool -ExeName "autoruns.exe"; Pause-Script }
-            "4" { Start-SysinternalsTool -ExeName "procmon.exe"; Pause-Script }
-            "5" { Start-SysinternalsTool -ExeName "bginfo.exe"; Pause-Script }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
-}
-
-
-function Show-NetworkMenu {
-    do {
-        Clear-Host
-        Write-Host "=== Netzwerk Konfiguration ===" -ForegroundColor Cyan
-        Write-Host "1: IP-Konfiguration setzen"
-        Write-Host "2: VLAN-Konfiguration"
-        Write-Host "3: Netzwerkadapter anzeigen"
-        Write-Host "Q: Zurueck"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { Set-NetworkConfig }
-            "2" { Set-VlanTag }
-            "3" { Show-NetworkAdapters }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
-}
-
-
-function Show-ADMenu {
-    do {
-        Clear-Host
-        Write-Host "=== Active Directory Verwaltung ===" -ForegroundColor Cyan
-        Write-Host "1: Benutzer anlegen"
-        Write-Host "2: Gruppe anlegen"
-        Write-Host "3: Benutzer und Gruppe anlegen"
-        Write-Host "Q: Zurueck"
-        
-        $choice = Read-Host "`nIhre Auswahl"
-        
-        switch ($choice) {
-            "1" { New-ADUser; Pause-Script }
-            "2" { New-ADGroup; Pause-Script }
-            "3" { New-ADUserWithGroup; Pause-Script }
-            "Q" { return }
-            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
-        }
-    } while ($true)
-}
-
 # ======================================================
 # Connection Manager (integrierte Vollversion)
 # Autor: Logi
 # ======================================================
-
 function Show-ConnectionManagerMenu {
 
     # === interne Helper-Funktionen ===
     try {
-        # Ermittelt Pfad des aktiven Skripts (egal wie gestartet)
         if ($PSScriptRoot -and (Test-Path $PSScriptRoot)) {
             $Script:ScriptDir = $PSScriptRoot
         } else {
@@ -1435,7 +1334,6 @@ function Show-ConnectionManagerMenu {
         Write-Host "💾 Backup erstellt: $bak"
     }
 
-    # === Dynamische Subnetz-Erkennung ===
     function Sort-Connections-ByActiveSubnet {
         param([array]$Connections)
         $localIPs = Get-NetIPAddress -AddressFamily IPv4 | Where-Object {
@@ -1462,7 +1360,6 @@ function Show-ConnectionManagerMenu {
         return ($Connections | Sort-Object -Property MatchScore -Descending)
     }
 
-    # === Verbindungsfunktion (RDP/SSH) ===
     function Connect-Entry {
         $list = Sort-Connections-ByActiveSubnet -Connections (Load-Connections)
         if (-not $list -or $list.Count -eq 0) { Write-Host "Keine gespeicherten Einträge."; return }
@@ -1492,7 +1389,6 @@ username:s:$($entry.Username)
         }
     }
 
-    # === Menü des Connection Managers ===
     while ($true) {
         Clear-Host
         Write-Host "==== Connection Manager ====" -ForegroundColor Cyan
@@ -1518,6 +1414,164 @@ username:s:$($entry.Username)
     }
 }
 
+# --------------------------
+# Untermenues mit Logging-Wrapper
+# --------------------------
+function Show-InstallMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Installieren und Konfigurieren ===" -ForegroundColor Cyan
+        Write-Host "1: IIS Webserver installieren"
+        Write-Host "2: RSAT Tools installieren"
+        Write-Host "3: OpenSSH-Server installieren"
+        Write-Host "4: SNMP-Dienst installieren"
+        Write-Host "5: Sysinternals Tools verwalten"
+        Write-Host "6: PowerShell konfigurieren"
+        Write-Host "Q: Zurueck"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "IIS Webserver installieren"     -Action { Install-IIS } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "RSAT Tools installieren"        -Action { Install-RSAT } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "OpenSSH-Server installieren"    -Action { Install-OpenSSH } }
+            "4" { Invoke-WithOptionalLogging -FeatureName "SNMP-Dienst installieren"       -Action { Install-SNMP } }
+            "5" { Invoke-WithOptionalLogging -FeatureName "Sysinternals Tools"             -Action { Show-SysinternalsMenu } }
+            "6" { Invoke-WithOptionalLogging -FeatureName "PowerShell konfigurieren"       -Action { Set-PowerShellConfiguration } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
+
+function Show-SysinternalsMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Sysinternals Tools ===" -ForegroundColor Cyan
+        Write-Host "1: Process Explorer"
+        Write-Host "2: TCPView"
+        Write-Host "3: Autoruns"
+        Write-Host "4: Process Monitor"
+        Write-Host "5: BGInfo"
+        Write-Host "Q: Zurueck"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "Start Process Explorer" -Action { Start-SysinternalsTool -ExeName "procexp.exe"; Pause-Script } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "Start TCPView"         -Action { Start-SysinternalsTool -ExeName "tcpview.exe"; Pause-Script } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "Start Autoruns"        -Action { Start-SysinternalsTool -ExeName "autoruns.exe"; Pause-Script } }
+            "4" { Invoke-WithOptionalLogging -FeatureName "Start Process Monitor" -Action { Start-SysinternalsTool -ExeName "procmon.exe"; Pause-Script } }
+            "5" { Invoke-WithOptionalLogging -FeatureName "Start BGInfo"          -Action { Start-SysinternalsTool -ExeName "bginfo.exe"; Pause-Script } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
+
+function Show-NetworkMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Netzwerk Konfiguration ===" -ForegroundColor Cyan
+        Write-Host "1: IP-Konfiguration setzen"
+        Write-Host "2: VLAN-Konfiguration"
+        Write-Host "3: Netzwerkadapter anzeigen"
+        Write-Host "Q: Zurueck"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "IP-Konfiguration setzen" -Action { Set-NetworkConfig } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "VLAN-Konfiguration"     -Action { Set-VlanTag } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "Adapterdetails"         -Action { Show-NetworkAdapters } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
+
+function Show-ADMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Active Directory Verwaltung ===" -ForegroundColor Cyan
+        Write-Host "1: Benutzer anlegen"
+        Write-Host "2: Gruppe anlegen"
+        Write-Host "3: Benutzer und Gruppe anlegen"
+        Write-Host "Q: Zurueck"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "AD: Benutzer anlegen"          -Action { New-ADUser } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "AD: Gruppe anlegen"            -Action { New-ADGroup } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "AD: Benutzer & Gruppe anlegen" -Action { New-ADUserWithGroup } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
+
+function Show-RequirementsMenu {
+    do {
+        Clear-Host
+        Write-Host "=== Voraussetzungen installieren ===" -ForegroundColor Cyan
+        Write-Host "1: RSAT Tools installieren"
+        Write-Host "2: OpenSSH-Server installieren"
+        Write-Host "3: SNMP-Dienst installieren"
+        Write-Host "4: IIS Webserver installieren"
+        Write-Host "5: Sysinternals Tools herunterladen"
+        Write-Host "6: PowerShell konfigurieren"
+        Write-Host "7: ALLE Voraussetzungen installieren"
+        Write-Host "8: Installationsstatus pruefen"
+        Write-Host "Q: Zurueck zum Hauptmenue"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "RSAT Tools installieren"         -Action { Install-RSAT } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "OpenSSH-Server installieren"     -Action { Install-OpenSSH } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "SNMP-Dienst installieren"        -Action { Install-SNMP } }
+            "4" { Invoke-WithOptionalLogging -FeatureName "IIS Webserver installieren"      -Action { Install-IIS } }
+            "5" { Invoke-WithOptionalLogging -FeatureName "Sysinternals herunterladen"      -Action { Install-Sysinternals } }
+            "6" { Invoke-WithOptionalLogging -FeatureName "PowerShell konfigurieren"        -Action { Set-PowerShellConfiguration } }
+            "7" { Invoke-WithOptionalLogging -FeatureName "ALLE Voraussetzungen installieren" -Action { Install-AllPrerequisites } }
+            "8" { Invoke-WithOptionalLogging -FeatureName "Installationsstatus pruefen"     -Action { Test-Requirements } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
+
+function Show-FixMenu {
+    do {
+        Clear-Host
+        Write-Host "`n==== Allgemeine Fehlerbehebung ====" -ForegroundColor Magenta
+        Write-Host "1: Systemdateien pruefen & reparieren"
+        Write-Host "2: Treiber & Hardware pruefen"
+        Write-Host "3: Netzwerk & DNS zuruecksetzen"
+        Write-Host "4: Speicher & Leistung pruefen"
+        Write-Host "5: Eventlogs analysieren"
+        Write-Host "6: Automatische Problembehandlungen"
+        Write-Host "7: Registry & erweiterte Analyse"
+        Write-Host "8: Systemwiederherstellung & Backup"
+        Write-Host "Q: Zurueck"
+        
+        $choice = Read-Host "`nIhre Auswahl"
+        
+        switch ($choice) {
+            "1" { Invoke-WithOptionalLogging -FeatureName "SFC/DISM"                       -Action { Repair-SystemFiles } }
+            "2" { Invoke-WithOptionalLogging -FeatureName "Treiber & Hardware"             -Action { Repair-DriversAndHardware } }
+            "3" { Invoke-WithOptionalLogging -FeatureName "Netzwerk & DNS Reset"           -Action { Repair-Network } }
+            "4" { Invoke-WithOptionalLogging -FeatureName "Speicher & Leistung"            -Action { Repair-MemoryAndPerformance } }
+            "5" { Invoke-WithOptionalLogging -FeatureName "Eventlogs Analyse"              -Action { Repair-EventLogAnalysis } }
+            "6" { Invoke-WithOptionalLogging -FeatureName "Automatische Problembehandlung" -Action { Repair-AutomatedTroubleshooters } }
+            "7" { Invoke-WithOptionalLogging -FeatureName "Registry & Advanced"            -Action { Repair-RegistryAndAdvanced } }
+            "8" { Invoke-WithOptionalLogging -FeatureName "Systemwiederherstellung"        -Action { Repair-SystemRestore } }
+            "Q" { return }
+            default { Write-Warning "Ungueltige Auswahl"; Pause-Script }
+        }
+    } while ($true)
+}
 
 # --------------------------
 # Hauptmenue
@@ -1537,23 +1591,23 @@ function Show-MainMenu {
         Write-Host "8:  Drucker installieren"
         Write-Host "9:  Voraussetzungen installieren"
         Write-Host "10: Allgemeine Fehlerbehebung"
-		Write-Host "11: Connection Manager"
+        Write-Host "11: Connection Manager"
         Write-Host "Q:  Beenden"
         
         $choice = Read-Host "`nIhre Auswahl"
         
         switch ($choice) {
-            "1"  { Show-SystemInfo }
-            "2"  { Show-InstallMenu }
-            "3"  { Test-NetworkAndServices }
-            "4"  { Invoke-Updates }
-            "5"  { Show-ADMenu }
-            "6"  { Show-SystemErrors }
-            "7"  { Show-NetworkMenu }
-            "8"  { Install-PrinterByRoom }
-            "9"  { Show-RequirementsMenu }
-            "10" { Show-FixMenu }
-			"11" { Show-ConnectionManagerMenu }
+            "1"  { Invoke-WithOptionalLogging -FeatureName "Systeminformationen"           -Action { Show-SystemInfo } }
+            "2"  { Invoke-WithOptionalLogging -FeatureName "Installieren & Konfigurieren"  -Action { Show-InstallMenu } }
+            "3"  { Invoke-WithOptionalLogging -FeatureName "Netzwerk & Dienste"            -Action { Test-NetworkAndServices } }
+            "4"  { Invoke-WithOptionalLogging -FeatureName "Windows & App Updates"         -Action { Invoke-Updates } }
+            "5"  { Invoke-WithOptionalLogging -FeatureName "Active Directory Verwaltung"   -Action { Show-ADMenu } }
+            "6"  { Invoke-WithOptionalLogging -FeatureName "Systemfehler anzeigen"         -Action { Show-SystemErrors } }
+            "7"  { Invoke-WithOptionalLogging -FeatureName "Netzwerk Konfiguration"        -Action { Show-NetworkMenu } }
+            "8"  { Invoke-WithOptionalLogging -FeatureName "Drucker installieren"          -Action { Install-PrinterByRoom } }
+            "9"  { Invoke-WithOptionalLogging -FeatureName "Voraussetzungen installieren"  -Action { Show-RequirementsMenu } }
+            "10" { Invoke-WithOptionalLogging -FeatureName "Allgemeine Fehlerbehebung"     -Action { Show-FixMenu } }
+            "11" { Invoke-WithOptionalLogging -FeatureName "Connection Manager"            -Action { Show-ConnectionManagerMenu } }
             "Q"  {
                 Write-Host "Admin-Toolkit wird beendet. Tschuess." -ForegroundColor Cyan
                 exit
@@ -1565,5 +1619,6 @@ function Show-MainMenu {
         }
     } while ($true)
 }
+
 # ----- Skriptstart -----
 Show-MainMenu
